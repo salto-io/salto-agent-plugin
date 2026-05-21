@@ -1,13 +1,10 @@
----
-name: salto-deploy
-description: Orchestrate a complete NACL edit → local-validate → push → SaaS-preview loop, creating or reusing a Salto deployment and surfacing a PR for human review.
----
+# Salto Deploy (reference, loaded by the `/salto` router)
 
-# Salto Deploy
+This is reference content. It is not registered as a slash command. The `/salto` router reads it when intent is classified as DEPLOY, then follows the instructions below with the user's original `$ARGUMENTS`.
 
 > [!NOTE]
 >
-> Usage: /salto-deploy {description} [--workspace <path>] [--deployment-id <id> | --branch-name <name>] [--max-local-iterations <n>] [--max-saas-iterations <n>]
+> Invoked via: /salto "<deploy request>" [--workspace <path>] [--deployment-id <id> | --branch-name <name>] [--max-local-iterations <n>] [--max-saas-iterations <n>]
 
 Orchestrate NACL changes from edit to SaaS-validated PR. Handles both new and existing Salto deployments.
 
@@ -66,10 +63,13 @@ Run all checks and collect every failure before reporting. Do not stop at the fi
 2b. **gh CLI availability** (informational, never a failure): probe with `which gh >/dev/null && gh auth status >/dev/null 2>&1`. Set `GH_AVAILABLE=true` if both succeed, else `GH_AVAILABLE=false`. Used in Step 9 to decide whether to create the PR automatically or fall back to printing the compare URL.
 3. **Is a Salto workspace**:
    - `salto.config/workspace.nacl` exists and contains a `uid` field → store as `WORKSPACE_UID`
-   - `salto.config/envs.nacl` exists and defines at least one environment → store the first (or only) env name as `ENV_NAME`, list all adapter names as `ADAPTER_LIST`. If multiple envs exist and the description doesn't disambiguate, ask the user which env to target.
-   - `salto.config/adapters/` directory exists
+   - **Detect workspace format**:
+     - If `salto.config/envsSaltoCloud.nacl` exists and contains an `envsCloud = [...]` block → **cloud-mounted workspace**. Set `WORKSPACE_FORMAT=cloud`. Parse each `{ uuid = "...", folderName = "..." }` entry; use the `folderName` values as env names and the `uuid` values as env IDs. Store the first (or only) folderName as `ENV_NAME` and the first uuid as `ENV_UUID`. If multiple envs exist and the description doesn't disambiguate, ask the user which env to target (offer both name and uuid).
+     - Else if `salto.config/envs.nacl` exists and defines at least one environment (`envs { envs = ["<name>", ...] }`) → **legacy workspace**. Set `WORKSPACE_FORMAT=legacy`. Store the first (or only) env name as `ENV_NAME`. Leave `ENV_UUID` unset. If multiple envs exist and the description doesn't disambiguate, ask the user which env to target.
+   - List all adapter names as `ADAPTER_LIST` from `salto.config/adapters/`.
+   - `salto.config/adapters/` directory exists.
 
-   Print: `Workspace: <uid> | Env: <env-name> | Adapters: <adapter-list>`
+   Print: `Workspace: <uid> | Env: <env-name> | Format: <legacy|cloud> | Adapters: <adapter-list>`
 
    If any file is missing or malformed, add to failures: "Not a valid Salto workspace — missing `<file>`."
 
@@ -92,7 +92,7 @@ If any hard failures were collected, print them all and stop. Print warnings but
 
 From the adapter list extracted in step 3, check whether a knowledge file exists for each adapter and read it if so:
 ```bash
-[ -f ".claude/commands/adapters/<adapter>.md" ] && cat ".claude/commands/adapters/<adapter>.md"
+[ -f "${CLAUDE_PLUGIN_ROOT}/adapters/<adapter>.md" ] && cat "${CLAUDE_PLUGIN_ROOT}/adapters/<adapter>.md"
 ```
 
 Do this for every adapter found. Missing adapter files are silently skipped — they are enrichment, not a requirement. When an adapter file is present, reading it before any NACL edits ensures Claude uses the correct element types, ID patterns, and avoids known pitfalls for that adapter.
@@ -116,6 +116,54 @@ echo "Worktree: ${WORKTREE_PATH}"
 ```
 
 All subsequent NACL edits happen inside `WORKTREE_PATH`.
+
+### Step 4b: Patch envs.nacl for cloud workspaces (conditional)
+
+Skip this step entirely if `WORKSPACE_FORMAT=legacy`.
+
+For cloud-mounted workspaces, `salto.config/envs.nacl` is an empty `envs = []` placeholder — the real env list lives in `envsSaltoCloud.nacl` with a schema (`envsCloud`) that the open-source workspace loader used by `validate-local` does not understand. Without this patch, `validate-local` fails with "Workspace with no environments is illegal". (Long-term this will be fixed inside the CLI; this is the interim skill-level workaround.)
+
+Overwrite the worktree's `envs.nacl` with **structured** env entries that the open-source loader expects. Each entry is an object with a `name` and an `accountToServiceName` map. The map keys come from the per-env adapter directories under `envs/<envName>/<account>/`; assume `serviceName === accountName` (cloud format doesn't expose aliasing to us, and the open-source loader only needs this to resolve account → adapter for plan computation).
+
+```bash
+# For a single env named "${ENV_NAME}" with accounts discovered from envs/${ENV_NAME}/:
+ACCOUNTS=$(ls -1 "${WORKTREE_PATH}/envs/${ENV_NAME}" 2>/dev/null | grep -v static-resources)
+
+# Build the accountToServiceName lines, e.g. `      zendesk = "zendesk"`
+ACCOUNT_LINES=$(printf '      %s = "%s"\n' $(for a in ${ACCOUNTS}; do echo "$a $a"; done))
+
+cat > "${WORKTREE_PATH}/salto.config/envs.nacl" <<EOF
+envs {
+  envs = [
+    {
+      name = "${ENV_NAME}"
+      accountToServiceName = {
+${ACCOUNT_LINES}
+      }
+    },
+  ]
+}
+EOF
+```
+
+Resulting file (example for an env with a `zendesk` account):
+
+```hcl
+envs {
+  envs = [
+    {
+      name = "My First Env"
+      accountToServiceName = {
+        zendesk = "zendesk"
+      }
+    },
+  ]
+}
+```
+
+(If you've chosen multiple envs in Step 3, emit one such entry per env.)
+
+This change lives only in the worktree's checkout — your main workspace is untouched. The patch will be restored before commit in Step 7 so it never reaches the PR.
 
 ### Step 5: Prepare state temp dir
 
@@ -143,14 +191,32 @@ Repeat until the plan is clean or the limit is reached:
 - Keep edits small and scoped. Summarise in one line what changed.
 
 **6b. Run validate-local**
+
+On the **first** iteration of this loop, pass `--refresh-state` so the CLI wipes `STATE_TMP` and re-fetches the latest state from the target env. This guarantees a deploy starts against the freshest state — even if `STATE_TMP` somehow has files from a prior run.
+
+For env targeting: use `--target-env-id "${ENV_UUID}"` when `WORKSPACE_FORMAT=cloud` (cloud orgs can have multiple envs with the same display name, which makes `--target-env` ambiguous). Use `--target-env "${ENV_NAME}"` when `WORKSPACE_FORMAT=legacy`.
+
 ```bash
+# Cloud workspace
+salto-cli deployment validate-local \
+  --workspace "${WORKTREE_PATH}" \
+  --target-env-id "${ENV_UUID}" \
+  --state-dir "${STATE_TMP}" \
+  --refresh-state \
+  --output json \
+  --allow-warnings
+
+# Legacy workspace
 salto-cli deployment validate-local \
   --workspace "${WORKTREE_PATH}" \
   --target-env "${ENV_NAME}" \
   --state-dir "${STATE_TMP}" \
+  --refresh-state \
   --output json \
   --allow-warnings
 ```
+
+On **subsequent** iterations (after a failed validate that you're now fixing), **drop `--refresh-state`**. State doesn't change while you edit NACL locally; re-downloading every iteration wastes time. Keep the same `--target-env-id` / `--target-env` flag you chose above.
 
 State is fetched from the environment directly — no deployment seed is required. Works the same way in both new-deployment and existing-deployment mode.
 
@@ -181,6 +247,16 @@ Then decide:
   - `baselineSecurityIssues` (any severity) → log a one-line summary count (`Ignoring N pre-existing security issues unrelated to this change`) and continue. Never block on baseline.
 
 ### Step 7: Commit (no push yet in new-deployment mode)
+
+If `WORKSPACE_FORMAT=cloud`, restore the worktree's `envs.nacl` first so the Step 4b patch never reaches the PR:
+
+```bash
+if [ "${WORKSPACE_FORMAT}" = "cloud" ]; then
+  git -C "${WORKTREE_PATH}" checkout -- salto.config/envs.nacl
+fi
+```
+
+Then stage and commit only the user-facing NACL edits:
 
 ```bash
 git -C "${WORKTREE_PATH}" add -- '*.nacl'
@@ -255,13 +331,14 @@ Then stop the skill — Step 10 onwards requires a Salto deployment that won't e
 ```bash
 DEPLOYMENT_JSON=$(salto-cli deployment create from-pull-request \
   --pr-url "${PR_URL}" \
-  --target-env "${ENV_NAME}" \
-  --output json 2>&1)
+  --target-env "${ENV_NAME}" 2>&1)
 DEPLOYMENT_ID=$(echo "$DEPLOYMENT_JSON" | python3 -c \
   "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 ```
 
 `ENV_NAME` is the environment name extracted in Step 3 pre-flight. (Use `--target-env-id <uuid>` instead if a workspace has multiple envs and the name isn't unique.)
+
+`from-pull-request` outputs JSON by default — it does not accept `--output`. Don't add that flag.
 
 If `DEPLOYMENT_ID` is set: print `Deployment ${DEPLOYMENT_ID} created from PR.` and continue.
 

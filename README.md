@@ -4,19 +4,19 @@ Claude Code skills for automating [Salto](https://www.salto.io) NACL workflows: 
 
 ## What this plugin gives you
 
-Three slash commands once installed:
+A single slash command:
 
-- `/salto` — natural-language router. Type a request and it delegates to the right sub-skill.
-- `/salto-deploy` — orchestrates a full NACL change end-to-end: edit → local-validate (with security checks) → push → SaaS preview → PR + deployment.
-- `/salto-explore` — read-only inspection of a workspace: list elements, browse deployment history, preview what would change, compare environments. No writes.
+- `/salto "<natural language request>"` — single entry point. Internally routes between two workflows based on what you ask:
+  - **Deploy** (add / rename / delete / change / fix): orchestrates a full NACL change end-to-end — edit → local-validate (with security checks) → push → SaaS preview → PR + deployment.
+  - **Explore** (what / show / list / compare): read-only inspection of a workspace. Lists elements, browses deployment history, previews what would change, compares environments. No writes.
 
-Adapter-specific knowledge (currently Zendesk) is loaded automatically based on what your workspace uses.
+Adapter-specific knowledge (currently Zendesk) is loaded automatically based on what your workspace uses. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
 
 ## Prerequisites
 
 - **`salto-cli` on `$PATH`** — the skills call `salto-cli` for all SaaS-side work. Until a public installer is published, contact your Salto representative for the binary.
-- **`gh` CLI authenticated** — used by `/salto-deploy` to open PRs. Run `gh auth login` once.
-- **`git`** — standard.
+- **`git`** — required.
+- **`gh` CLI authenticated** *(optional)* — if installed and authenticated (`gh auth login`), the deploy workflow opens PRs for you. Otherwise it just pushes the branch and prints a GitHub compare URL for you to open manually.
 
 ## Install in Claude Code
 
@@ -37,35 +37,26 @@ For all SaaS-touching skills:
 export SALTO_API_TOKEN=<your-token>     # generate in the Salto UI: Settings → API Tokens
 ```
 
-For non-production targets (staging, local stack):
-
-```bash
-export GRAPHQL_URL=<env-specific>       # default: https://graphql.salto.io/graphql
-export SALTO_URL=<env-specific>         # default: https://app.salto.io
-export AUTH0_DOMAIN=<env-specific>      # default: auth.salto.io
-export AUTH0_CLIENT_ID=<env-specific>   # default: prod CLI client
-```
-
-Add these to `~/.zshrc` (or your shell's rc) so they're set before Claude Code starts.
+Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code starts.
 
 ## Quick start
 
 From inside a Salto workspace directory:
 
 ```
-/salto-deploy "add a Zendesk trigger named welcome_message that tags new tickets with 'welcome'"
+/salto "add a Zendesk trigger named welcome_message that tags new tickets with 'welcome'"
 ```
 
 Or, from anywhere with `--workspace`:
 
 ```
-/salto-deploy "rename the Okta group admins to platform-admins" --workspace ~/path/to/your/salto-workspace
+/salto "rename the Okta group admins to platform-admins" --workspace ~/path/to/your/salto-workspace
 ```
 
-To inspect without changing anything:
+To inspect without changing anything (routed to explore internally):
 
 ```
-/salto-explore "what Zendesk triggers exist in my production env?"
+/salto "what Zendesk triggers exist in my production env?"
 ```
 
 ## Updates

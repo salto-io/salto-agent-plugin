@@ -1,13 +1,10 @@
----
-name: salto-explore
-description: Read-only exploration of Salto workspaces and environments. List and inspect NACL elements, browse deployment history, preview change plans, and compare environments — without making any changes. Automatically loads adapter-specific NACL knowledge (Zendesk, Salesforce, Okta, etc.) based on what is configured in the workspace.
----
+# Salto Explore (reference, loaded by the `/salto` router)
 
-# Salto Explore
+This is reference content. It is not registered as a slash command. The `/salto` router reads it when intent is classified as EXPLORE, then follows the instructions below with the user's original `$ARGUMENTS`.
 
 > [!NOTE]
 >
-> Usage: /salto-explore "<question>" [--workspace <path>] [--deployment-id <id>]
+> Invoked via: /salto "<question>" [--workspace <path>] [--deployment-id <id>]
 
 Answer questions about a Salto workspace without making any changes. Reads NACL files directly and uses `salto-cli deployment list/show/validate-local` for live data.
 

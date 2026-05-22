@@ -77,13 +77,43 @@ Run all checks and collect every failure before reporting. Do not stop at the fi
    - `salto.config/workspace.nacl` exists and contains a `uid` field → store as `WORKSPACE_UID`
    - **Detect workspace format**:
      - If `salto.config/envsSaltoCloud.nacl` exists and contains an `envsCloud = [...]` block → **cloud-mounted workspace**. Set `WORKSPACE_FORMAT=cloud`. Parse each `{ uuid = "...", folderName = "..." }` entry; use the `folderName` values as env names and the `uuid` values as env IDs. Store the first (or only) folderName as `ENV_NAME` and the first uuid as `ENV_UUID`. If multiple envs exist and the description doesn't disambiguate, ask the user which env to target (offer both name and uuid).
-     - Else if `salto.config/envs.nacl` exists and defines at least one environment (`envs { envs = ["<name>", ...] }`) → **legacy workspace**. Set `WORKSPACE_FORMAT=legacy`. Store the first (or only) env name as `ENV_NAME`. Leave `ENV_UUID` unset. If multiple envs exist and the description doesn't disambiguate, ask the user which env to target.
+     - Else if `salto.config/envs.nacl` exists and defines at least one environment (`envs { envs = ["<name>", ...] }`) → **legacy workspace**. Set `WORKSPACE_FORMAT=legacy`. Store the first (or only) env name as `ENV_NAME`. **You must resolve `ENV_NAME` → `ENV_UUID` via GraphQL now** so every subsequent step uses the UUID — env names are not unique across the user's accessible orgs and `--target-env <name>` will fail with "Found multiple environments with name <name>". See the resolution snippet below.
    - List all adapter names as `ADAPTER_LIST` from `salto.config/adapters/`.
    - `salto.config/adapters/` directory exists.
 
-   Print: `Workspace: <uid> | Env: <env-name> | Format: <legacy|cloud> | Adapters: <adapter-list>`
+   Print: `Workspace: <uid> | Env: <env-name> | UUID: <env-uuid> | Format: <legacy|cloud> | Adapters: <adapter-list>`
 
    If any file is missing or malformed, add to failures: "Not a valid Salto workspace — missing `<file>`."
+
+   **Env name → UUID resolution (legacy only)** — for legacy workspaces, immediately resolve `ENV_NAME` to `ENV_UUID` so we can use `--target-env-id` everywhere. The CLI's own resolver fails on duplicate names across orgs, so we go through GraphQL directly:
+
+   ```bash
+   if [ "${WORKSPACE_FORMAT}" = "legacy" ]; then
+     ORGS_JSON=$(curl -sf "${GRAPHQL_URL:-https://graphql.salto.io/graphql}" \
+       -H "Authorization: Bearer ${SALTO_API_TOKEN}" -H "Content-Type: application/json" \
+       -d '{"query":"{ me { orgMemberships { org { id environments { id name } } } } }"}')
+     # First match: org+env where the env's name equals ENV_NAME. If more than one match
+     # exists, surface it as a failure with the org IDs — the user needs to disambiguate.
+     ENV_UUID=$(echo "${ORGS_JSON}" | python3 -c "
+   import sys, json
+   d = json.load(sys.stdin)
+   matches = []
+   for m in d.get('data',{}).get('me',{}).get('orgMemberships',[]) or []:
+       o = m.get('org') or {}
+       for e in o.get('environments') or []:
+           if e.get('name') == '${ENV_NAME}':
+               matches.append((o.get('id'), e.get('id')))
+   if len(matches) == 0:
+       print('', file=sys.stderr); sys.exit(1)
+   if len(matches) > 1:
+       print('AMBIGUOUS:' + ','.join(f'{o}/{e}' for o,e in matches), file=sys.stderr); sys.exit(2)
+   print(matches[0][1])
+   ")
+     [ -z "${ENV_UUID}" ] && { echo "ERROR: could not resolve env '${ENV_NAME}' to a UUID. Check SALTO_API_TOKEN + that the env exists in one of your orgs." >&2; exit 1; }
+   fi
+   ```
+
+   From here on, **every CLI call that targets an env uses `--target-env-id "${ENV_UUID}"`** — never `--target-env <name>`. This applies to validate-local (Step 6b), fetch-state, deployment list filters, and from-pull-request (Step 10).
 
 4. **Git repository**: `git -C "${WORKSPACE}" rev-parse --show-toplevel` → store as `GIT_ROOT`. If fails, add to failures: "Workspace is not inside a git repository."
 
@@ -198,7 +228,7 @@ This directory is:
 - Passed as `--state-dir` to every `validate-local` call
 - Deleted at the end of the skill run
 
-On the first `validate-local` call, if state files are absent from `STATE_TMP`, the CLI auto-fetches them directly from the target environment (via `--target-env`). On subsequent calls the files are already present and no fetch happens.
+On the first `validate-local` call, if state files are absent from `STATE_TMP`, the CLI auto-fetches them directly from the target environment (via `--target-env-id`). On subsequent calls the files are already present and no fetch happens.
 
 ### Step 6: Local edit and validate loop (max: --max-local-iterations, default 5)
 
@@ -213,10 +243,9 @@ Repeat until the plan is clean or the limit is reached:
 
 On the **first** iteration of this loop, pass `--refresh-state` so the CLI wipes `STATE_TMP` and re-fetches the latest state from the target env. This guarantees a deploy starts against the freshest state — even if `STATE_TMP` somehow has files from a prior run.
 
-For env targeting: use `--target-env-id "${ENV_UUID}"` when `WORKSPACE_FORMAT=cloud` (cloud orgs can have multiple envs with the same display name, which makes `--target-env` ambiguous). Use `--target-env "${ENV_NAME}"` when `WORKSPACE_FORMAT=legacy`.
+Always use `--target-env-id "${ENV_UUID}"` — never the env-name form. The skill resolves the UUID upfront in Step 3 for both cloud and legacy workspaces, and every CLI call that targets an env should use it (env names are not unique across the user's accessible orgs).
 
 ```bash
-# Cloud workspace
 salto-cli deployment validate-local \
   --workspace "${WORKTREE_PATH}" \
   --target-env-id "${ENV_UUID}" \
@@ -224,18 +253,9 @@ salto-cli deployment validate-local \
   --refresh-state \
   --output json \
   --allow-warnings
-
-# Legacy workspace
-salto-cli deployment validate-local \
-  --workspace "${WORKTREE_PATH}" \
-  --target-env "${ENV_NAME}" \
-  --state-dir "${STATE_TMP}" \
-  --refresh-state \
-  --output json \
-  --allow-warnings
 ```
 
-On **subsequent** iterations (after a failed validate that you're now fixing), **drop `--refresh-state`**. State doesn't change while you edit NACL locally; re-downloading every iteration wastes time. Keep the same `--target-env-id` / `--target-env` flag you chose above.
+On **subsequent** iterations (after a failed validate that you're now fixing), **drop `--refresh-state`**. State doesn't change while you edit NACL locally; re-downloading every iteration wastes time. Keep `--target-env-id "${ENV_UUID}"` exactly as above.
 
 State is fetched from the environment directly — no deployment seed is required. Works the same way in both new-deployment and existing-deployment mode.
 
@@ -339,19 +359,12 @@ Then stop the skill — Step 10 onwards requires a Salto deployment that won't e
 
 **New-deployment mode (Path A or B from Step 9 — we have a `PR_URL`)**: create the deployment directly via the CLI. This is synchronous and does not depend on the GitHub webhook being wired.
 
-Use `--target-env-id "${ENV_UUID}"` when `WORKSPACE_FORMAT=cloud` and `--target-env "${ENV_NAME}"` when `WORKSPACE_FORMAT=legacy` — same selection rule as Step 6b. Cloud orgs can have multiple envs sharing a display name across orgs the user belongs to, so the name lookup fails with "Found multiple environments with name …" even when the worktree only points at one. The UUID is unambiguous.
+Always use `--target-env-id "${ENV_UUID}"` — same as Step 6b. `ENV_UUID` was resolved in Step 3 (immediately from `envsSaltoCloud.nacl` for cloud workspaces, via the GraphQL `me { orgMemberships { org { environments } } }` lookup for legacy ones). The env-name form is never safe across multiple accessible orgs.
 
 ```bash
-# Cloud workspace
 DEPLOYMENT_JSON=$(salto-cli deployment create from-pull-request \
   --pr-url "${PR_URL}" \
   --target-env-id "${ENV_UUID}" 2>&1)
-
-# Legacy workspace
-DEPLOYMENT_JSON=$(salto-cli deployment create from-pull-request \
-  --pr-url "${PR_URL}" \
-  --target-env "${ENV_NAME}" 2>&1)
-
 DEPLOYMENT_ID=$(echo "$DEPLOYMENT_JSON" | python3 -c \
   "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 ```

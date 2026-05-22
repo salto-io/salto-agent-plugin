@@ -24,6 +24,18 @@ In both modes, state is downloaded directly from the target environment — no "
 - Stop immediately on auth or credential errors. Report clearly and do not attempt to debug credentials.
 - Bounded loops: max 5 local iterations, max 3 SaaS iterations. If either limit is hit, stop and summarise what remains unresolved.
 
+## Supported scenario: PR base = env's tracked branch (Path A only)
+
+This skill **only** supports the case where the PR it opens will target the same branch the target env is tracking. In Salto's `createDeploymentFromPR` server-side resolver this is called "Path A" — `pullRequest.targetBranch === env.remoteBranch && pullRequest.repo === env.repository` — and it works for every adapter (Zendesk, Salesforce, NetSuite, Jira, etc.).
+
+When the PR's base differs from the env's tracked branch (Path B — i.e. the diff would have to be cherry-picked onto the env), the Salto backend **only** supports Salesforce and NetSuite adapters. For any other adapter the deployment-creation step will fail with: `Environment '<env>' does not have a supported application connection. Supported application types are salesforce and netsuite.`
+
+**Concrete consequence for this skill:** the user's current branch (`ORIGINAL_BRANCH`, captured in Step 4) must be the same branch the target env tracks (`env.gitDetails.remoteBranchName`). The skill verifies this in Step 3d and bails out before any edit / worktree / PR work if they don't match. If you (a future maintainer) ever want to extend the skill to the Path B case, you'll need to either restrict it to Salesforce/NetSuite-only envs or surface the limitation differently — don't silently let the deploy step explode at Step 10.
+
+### Workarounds when the precondition fails
+- If you actually want to deploy a change to `main` while sitting on `release/v0.42`: switch to the env's tracked branch first (`git checkout main`), then invoke `/salto`.
+- If you actually want the env to track `release/v0.42`: reconfigure the env in the Salto UI (Env settings → Git → change tracked branch), then invoke `/salto` again.
+
 ## Instructions
 
 Follow these steps in order. Stop and report clearly if any step fails.
@@ -97,21 +109,69 @@ From the adapter list extracted in step 3, check whether a knowledge file exists
 
 Do this for every adapter found. Missing adapter files are silently skipped — they are enrichment, not a requirement. When an adapter file is present, reading it before any NACL edits ensures Claude uses the correct element types, ID patterns, and avoids known pitfalls for that adapter.
 
-### Step 4: Create git worktree
+### Step 3c: Capture the current branch (deterministic)
 
-Capture the original branch **before** creating the worktree so the eventual PR can target it. This must be deterministic: read it from git, do not infer later from the worktree (the worktree is on the new branch by the time we'd look).
+Read it from git **before** any worktree work. This is the branch the PR will target. We need it both for Step 9 (`gh pr create --base`) and for the Step 3d precondition check below.
 
 ```bash
-ORIGINAL_BRANCH=$(git -C "${GIT_ROOT}" symbolic-ref --short HEAD)
+ORIGINAL_BRANCH=$(git -C "${GIT_ROOT}" symbolic-ref --short HEAD 2>/dev/null)
+if [ -z "${ORIGINAL_BRANCH}" ]; then
+  echo "ERROR: HEAD is detached. Check out a branch before running /salto." >&2
+  exit 1
+fi
 echo "Original branch: ${ORIGINAL_BRANCH}"
+```
 
+### Step 3d: Verify the env tracks the same branch (Path A precondition)
+
+This skill only supports the case where the PR base equals the env's tracked branch (see the "Supported scenario" preamble). Bail out **before** any worktree / edit / PR work if `ORIGINAL_BRANCH` doesn't match the env's tracked branch — otherwise we'd waste the user's time creating a PR that the deploy step would reject downstream.
+
+Query the env's tracked branch via GraphQL (the CLI doesn't expose this directly; one curl is cheaper than adding a new CLI flag):
+
+```bash
+ENV_GIT_RESPONSE=$(curl -sf "${GRAPHQL_URL:-https://graphql.salto.io/graphql}" \
+  -H "Authorization: Bearer ${SALTO_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"query EnvGit($orgId: ID!, $envId: ID!) { org(id: $orgId) { environment(id: $envId) { name gitDetails { remoteBranchName repoName } } } }","variables":{"orgId":"'"${ORG_ID}"'","envId":"'"${ENV_UUID:-$ENV_ID}"'"}}')
+ENV_TRACKED_BRANCH=$(echo "${ENV_GIT_RESPONSE}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('org',{}).get('environment',{}).get('gitDetails',{}).get('remoteBranchName',''))" 2>/dev/null)
+ENV_TRACKED_REPO=$(echo "${ENV_GIT_RESPONSE}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('org',{}).get('environment',{}).get('gitDetails',{}).get('repoName',''))" 2>/dev/null)
+echo "Env tracks: ${ENV_TRACKED_REPO:-?} @ ${ENV_TRACKED_BRANCH:-?}"
+```
+
+You need `ORG_ID` here — extract it from `salto-cli deployment list --env-id "${ENV_UUID}" --limit 1 --output json` (any returned deployment has the orgId) or via a separate `organizationsQuery` lookup if no deployments exist yet.
+
+Then assert the precondition:
+
+```bash
+if [ -n "${ENV_TRACKED_BRANCH}" ] && [ "${ENV_TRACKED_BRANCH}" != "${ORIGINAL_BRANCH}" ]; then
+  cat >&2 <<EOF
+ERROR: This skill only supports the case where your current branch matches the env's tracked branch (Path A).
+  Current branch:     ${ORIGINAL_BRANCH}
+  Env tracked branch: ${ENV_TRACKED_BRANCH}
+  Env:                ${ENV_NAME} (${ENV_UUID:-$ENV_ID})
+
+For non-Salesforce/NetSuite envs, the Salto backend rejects PRs whose base differs from the env's tracked branch. To proceed:
+  (a) Switch to '${ENV_TRACKED_BRANCH}' first: git checkout ${ENV_TRACKED_BRANCH}, then re-run /salto.
+  (b) Or reconfigure the env in the Salto UI to track '${ORIGINAL_BRANCH}', then re-run /salto.
+
+(See the "Supported scenario: PR base = env's tracked branch" section at the top of this skill for the full reasoning.)
+EOF
+  exit 1
+fi
+```
+
+If `ENV_TRACKED_BRANCH` came back empty (env not yet git-linked, or the field was null) — proceed with a warning, since the gating Path A/B logic on the server only kicks in when the env actually has a tracked branch.
+
+### Step 4: Create git worktree
+
+`ORIGINAL_BRANCH` was already captured in Step 3c and validated against the env's tracked branch in Step 3d. The worktree is created off `ORIGINAL_BRANCH`'s HEAD; the new feature branch will be the `--head` of the eventual PR, with `--base = ORIGINAL_BRANCH`.
+
+```bash
 TIMESTAMP=$(date +%s)
 BRANCH="claude/${task-slug}-${TIMESTAMP}"
 
 git -C "${GIT_ROOT}" worktree add -b "${BRANCH}" "${GIT_ROOT}/../$(basename ${GIT_ROOT})-${BRANCH//\//-}"
 ```
-
-If `git symbolic-ref` fails (detached HEAD), abort the run — we can't safely pick a PR base. Fall back to asking the user only as a last resort.
 
 Capture the actual worktree path from git (do not compute it manually):
 ```bash

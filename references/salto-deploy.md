@@ -124,54 +124,6 @@ echo "Worktree: ${WORKTREE_PATH}"
 
 All subsequent NACL edits happen inside `WORKTREE_PATH`. `ORIGINAL_BRANCH` is used in Step 9 as `--base` when creating the PR.
 
-### Step 4b: Patch envs.nacl for cloud workspaces (conditional)
-
-Skip this step entirely if `WORKSPACE_FORMAT=legacy`.
-
-For cloud-mounted workspaces, `salto.config/envs.nacl` is an empty `envs = []` placeholder — the real env list lives in `envsSaltoCloud.nacl` with a schema (`envsCloud`) that the open-source workspace loader used by `validate-local` does not understand. Without this patch, `validate-local` fails with "Workspace with no environments is illegal". (Long-term this will be fixed inside the CLI; this is the interim skill-level workaround.)
-
-Overwrite the worktree's `envs.nacl` with **structured** env entries that the open-source loader expects. Each entry is an object with a `name` and an `accountToServiceName` map. The map keys come from the per-env adapter directories under `envs/<envName>/<account>/`; assume `serviceName === accountName` (cloud format doesn't expose aliasing to us, and the open-source loader only needs this to resolve account → adapter for plan computation).
-
-```bash
-# For a single env named "${ENV_NAME}" with accounts discovered from envs/${ENV_NAME}/:
-ACCOUNTS=$(ls -1 "${WORKTREE_PATH}/envs/${ENV_NAME}" 2>/dev/null | grep -v static-resources)
-
-# Build the accountToServiceName lines, e.g. `      zendesk = "zendesk"`
-ACCOUNT_LINES=$(printf '      %s = "%s"\n' $(for a in ${ACCOUNTS}; do echo "$a $a"; done))
-
-cat > "${WORKTREE_PATH}/salto.config/envs.nacl" <<EOF
-envs {
-  envs = [
-    {
-      name = "${ENV_NAME}"
-      accountToServiceName = {
-${ACCOUNT_LINES}
-      }
-    },
-  ]
-}
-EOF
-```
-
-Resulting file (example for an env with a `zendesk` account):
-
-```hcl
-envs {
-  envs = [
-    {
-      name = "My First Env"
-      accountToServiceName = {
-        zendesk = "zendesk"
-      }
-    },
-  ]
-}
-```
-
-(If you've chosen multiple envs in Step 3, emit one such entry per env.)
-
-This change lives only in the worktree's checkout — your main workspace is untouched. The patch will be restored before commit in Step 7 so it never reaches the PR.
-
 ### Step 5: Prepare state temp dir
 
 Create a temp directory for state files that will persist for the duration of this skill run:
@@ -255,15 +207,7 @@ Then decide:
 
 ### Step 7: Commit (no push yet in new-deployment mode)
 
-If `WORKSPACE_FORMAT=cloud`, restore the worktree's `envs.nacl` first so the Step 4b patch never reaches the PR:
-
-```bash
-if [ "${WORKSPACE_FORMAT}" = "cloud" ]; then
-  git -C "${WORKTREE_PATH}" checkout -- salto.config/envs.nacl
-fi
-```
-
-Then stage and commit only the user-facing NACL edits:
+Stage and commit only the user-facing NACL edits. The skill no longer touches `salto.config/envs.nacl` for cloud workspaces — the CLI's `validate-local` synthesises the legacy-format envs.nacl into its shadow workspace and reads the authoritative `accountToServiceName` mapping from the env-info sidecar that `fetch-state` writes to the state dir. So there's nothing to restore before commit.
 
 ```bash
 git -C "${WORKTREE_PATH}" add -- '*.nacl'

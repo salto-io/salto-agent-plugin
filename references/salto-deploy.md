@@ -99,14 +99,21 @@ Do this for every adapter found. Missing adapter files are silently skipped — 
 
 ### Step 4: Create git worktree
 
+Capture the original branch **before** creating the worktree so the eventual PR can target it. This must be deterministic: read it from git, do not infer later from the worktree (the worktree is on the new branch by the time we'd look).
+
 ```bash
+ORIGINAL_BRANCH=$(git -C "${GIT_ROOT}" symbolic-ref --short HEAD)
+echo "Original branch: ${ORIGINAL_BRANCH}"
+
 TIMESTAMP=$(date +%s)
 BRANCH="claude/${task-slug}-${TIMESTAMP}"
 
 git -C "${GIT_ROOT}" worktree add -b "${BRANCH}" "${GIT_ROOT}/../$(basename ${GIT_ROOT})-${BRANCH//\//-}"
 ```
 
-Capture the actual path from git (do not compute it manually):
+If `git symbolic-ref` fails (detached HEAD), abort the run — we can't safely pick a PR base. Fall back to asking the user only as a last resort.
+
+Capture the actual worktree path from git (do not compute it manually):
 ```bash
 WORKTREE_PATH=$(git -C "${GIT_ROOT}" worktree list --porcelain \
   | grep -B1 "branch refs/heads/${BRANCH}" \
@@ -115,7 +122,7 @@ WORKTREE_PATH=$(git -C "${GIT_ROOT}" worktree list --porcelain \
 echo "Worktree: ${WORKTREE_PATH}"
 ```
 
-All subsequent NACL edits happen inside `WORKTREE_PATH`.
+All subsequent NACL edits happen inside `WORKTREE_PATH`. `ORIGINAL_BRANCH` is used in Step 9 as `--base` when creating the PR.
 
 ### Step 4b: Patch envs.nacl for cloud workspaces (conditional)
 
@@ -282,7 +289,7 @@ Pick a path based on the pre-flight detection:
 PR_URL=$(gh pr create \
   --repo "${GITHUB_REPO}" \
   --head "${BRANCH}" \
-  --base main \
+  --base "${ORIGINAL_BRANCH}" \
   --title "${description}" \
   --body "Created by /salto-deploy.
 
@@ -303,7 +310,7 @@ Print: `PR created: ${PR_URL}`
 **Path B — `gh` not available but the remote is GitHub** (`GH_AVAILABLE=false` AND `GITHUB_REPO` is set): fall back to printing the compare URL for manual creation.
 
 ```bash
-COMPARE_URL="https://github.com/${GITHUB_REPO}/compare/${BRANCH}?expand=1"
+COMPARE_URL="https://github.com/${GITHUB_REPO}/compare/${ORIGINAL_BRANCH}...${BRANCH}?expand=1"
 ```
 
 Print:
@@ -328,15 +335,22 @@ Then stop the skill — Step 10 onwards requires a Salto deployment that won't e
 
 **New-deployment mode (Path A or B from Step 9 — we have a `PR_URL`)**: create the deployment directly via the CLI. This is synchronous and does not depend on the GitHub webhook being wired.
 
+Use `--target-env-id "${ENV_UUID}"` when `WORKSPACE_FORMAT=cloud` and `--target-env "${ENV_NAME}"` when `WORKSPACE_FORMAT=legacy` — same selection rule as Step 6b. Cloud orgs can have multiple envs sharing a display name across orgs the user belongs to, so the name lookup fails with "Found multiple environments with name …" even when the worktree only points at one. The UUID is unambiguous.
+
 ```bash
+# Cloud workspace
+DEPLOYMENT_JSON=$(salto-cli deployment create from-pull-request \
+  --pr-url "${PR_URL}" \
+  --target-env-id "${ENV_UUID}" 2>&1)
+
+# Legacy workspace
 DEPLOYMENT_JSON=$(salto-cli deployment create from-pull-request \
   --pr-url "${PR_URL}" \
   --target-env "${ENV_NAME}" 2>&1)
+
 DEPLOYMENT_ID=$(echo "$DEPLOYMENT_JSON" | python3 -c \
   "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 ```
-
-`ENV_NAME` is the environment name extracted in Step 3 pre-flight. (Use `--target-env-id <uuid>` instead if a workspace has multiple envs and the name isn't unique.)
 
 `from-pull-request` outputs JSON by default — it does not accept `--output`. Don't add that flag.
 

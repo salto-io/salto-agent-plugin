@@ -21,6 +21,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SRC="$ROOT/skills/salto"   # the self-contained source skill (SKILL.md + references/ + adapters/)
 META="$ROOT/meta.json"     # packaging metadata (version + Claude plugin/marketplace manifests)
 DIST="$ROOT/dist"
+VERSION=$(jq -r .version "$META")
 
 # Substitute the {{SKILL_ROOT}} token. Pattern is matched literally (\Q..\E);
 # the replacement comes from $BASE via the environment so no escaping is needed.
@@ -38,10 +39,16 @@ copy_tree() {
 }
 
 # Emit the skill bundle (SKILL.md already carries its own frontmatter) for a given base.
+# Also stamps a version.json next to SKILL.md so salto-cli can read the installed
+# version (same relative location on every agent) and compare it to latest/manifest.json.
 emit_skill() {
-  local skill_dest="$1" support_dest="$2" base="$3"
-  mkdir -p "$(dirname "$skill_dest")"
+  local skill_dest="$1" support_dest="$2" base="$3" skill_dir skill_name
+  skill_dir="$(dirname "$skill_dest")"
+  skill_name="$(basename "$skill_dir")"
+  mkdir -p "$skill_dir"
   subst "$base" <"$SRC/SKILL.md" >"$skill_dest"
+  jq -n --arg name "$skill_name" --arg version "$VERSION" \
+    '{name: $name, version: $version}' >"$skill_dir/version.json"
   copy_tree "$SRC/references" "$support_dest/references" "$base"
   copy_tree "$SRC/adapters" "$support_dest/adapters" "$base"
 }
@@ -101,11 +108,13 @@ validate() {
     "claude/.claude-plugin/plugin.json"
     "claude/.claude-plugin/marketplace.json"
     "claude/skills/salto/SKILL.md"
+    "claude/skills/salto/version.json"
     "claude/references/salto-deploy.md"
     "claude/references/salto-explore.md"
     "claude/adapters/salesforce/cpq-to-rlm-migration.md"
     "claude/adapters/zendesk/zendesk.md"
     "copilot/.github/skills/salto/SKILL.md"
+    "copilot/.github/skills/salto/version.json"
     "copilot/.github/skills/salto/references/salto-deploy.md"
     "copilot/.github/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "copilot/.github/skills/salto/adapters/zendesk/zendesk.md"

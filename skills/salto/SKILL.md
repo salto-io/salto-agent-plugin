@@ -1,3 +1,8 @@
+---
+name: salto
+description: Single entry point for all Salto workflows. Type a natural-language request and the skill routes it internally — deploy (make changes), explore (query/inspect), or migrate (CPQ→RLM rebuild) — and loads adapter-specific knowledge as needed. Use this for any task against a Salto NACL workspace.
+---
+
 # Salto
 
 > [!NOTE]

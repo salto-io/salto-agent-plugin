@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build per-agent skill bundles from the single source of truth in core/.
+# Build per-agent skill bundles from the single source of truth in skills/salto/.
 # Usage: ./generators/build.sh
 #
 # Emits:
@@ -7,7 +7,7 @@
 #   dist/copilot/  — GitHub Copilot agent skill ({{SKILL_ROOT}} -> .)
 #
 # The ONLY content transform is substituting the {{SKILL_ROOT}} path token.
-# Everything else is mechanical copy + per-agent manifest/frontmatter.
+# Everything else is mechanical copy + per-agent manifest generation.
 #
 # Requires: bash, jq, perl (macOS + Linux). Not Windows.
 
@@ -18,12 +18,9 @@ for tool in jq perl find; do
 done
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-CORE="$ROOT/core"
+SRC="$ROOT/skills/salto"   # the self-contained source skill (SKILL.md + references/ + adapters/)
+META="$ROOT/meta.json"     # packaging metadata (version + Claude plugin/marketplace manifests)
 DIST="$ROOT/dist"
-META="$CORE/meta.json"
-
-SKILL_NAME=$(jq -r .skill.name "$META")
-SKILL_DESC=$(jq -r .skill.description "$META")
 
 # Substitute the {{SKILL_ROOT}} token. Pattern is matched literally (\Q..\E);
 # the replacement comes from $BASE via the environment so no escaping is needed.
@@ -32,6 +29,7 @@ subst() { BASE="$1" perl -pe 's/\Q{{SKILL_ROOT}}\E/$ENV{BASE}/g'; }
 # Recursively copy a directory, substituting the token in every file.
 copy_tree() {
   local src="$1" dest="$2" base="$3" f rel
+  [ -d "$src" ] || return 0
   while IFS= read -r -d '' f; do
     rel="${f#"$src"/}"
     mkdir -p "$dest/$(dirname "$rel")"
@@ -39,16 +37,18 @@ copy_tree() {
   done < <(find "$src" -type f -print0)
 }
 
-# SKILL.md = YAML frontmatter (name + description) + router body.
+# Emit the skill bundle (SKILL.md already carries its own frontmatter) for a given base.
 emit_skill() {
-  local dest="$1" base="$2"
-  mkdir -p "$(dirname "$dest")"
-  { printf -- '---\nname: %s\ndescription: %s\n---\n\n' "$SKILL_NAME" "$SKILL_DESC"
-    subst "$base" <"$CORE/router.md"
-  } >"$dest"
+  local skill_dest="$1" support_dest="$2" base="$3"
+  mkdir -p "$(dirname "$skill_dest")"
+  subst "$base" <"$SRC/SKILL.md" >"$skill_dest"
+  copy_tree "$SRC/references" "$support_dest/references" "$base"
+  copy_tree "$SRC/adapters" "$support_dest/adapters" "$base"
 }
 
 # --- Claude Code plugin -----------------------------------------------------
+# SKILL.md lives at skills/salto/; references/ and adapters/ live at plugin root
+# (the absolute ${CLAUDE_PLUGIN_ROOT} token resolves there).
 build_claude() {
   local base='${CLAUDE_PLUGIN_ROOT}' out="$DIST/claude"
   rm -rf "$out"
@@ -76,20 +76,17 @@ build_claude() {
     }]
   }' "$META" >"$out/.claude-plugin/marketplace.json"
 
-  emit_skill "$out/skills/salto/SKILL.md" "$base"
-  copy_tree "$CORE/references" "$out/references" "$base"
-  copy_tree "$CORE/adapters" "$out/adapters" "$base"
+  emit_skill "$out/skills/salto/SKILL.md" "$out" "$base"
 }
 
 # --- GitHub Copilot agent skill --------------------------------------------
+# Fully self-contained skill dir; references/ and adapters/ sit beside SKILL.md.
 build_copilot() {
   local base='.' out="$DIST/copilot" skilldir
   rm -rf "$out"
   skilldir="$out/.github/skills/salto"
 
-  emit_skill "$skilldir/SKILL.md" "$base"
-  copy_tree "$CORE/references" "$skilldir/references" "$base"
-  copy_tree "$CORE/adapters" "$skilldir/adapters" "$base"
+  emit_skill "$skilldir/SKILL.md" "$skilldir" "$base"
 
   cat >"$out/AGENTS.md" <<'EOF'
 # Salto

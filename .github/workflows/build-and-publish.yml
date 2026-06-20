@@ -1,6 +1,6 @@
 name: Build & Publish agent skills
 
-# Builds the per-agent skill bundles from core/ (via generators/build.sh) and,
+# Builds the per-agent skill bundles from skills/salto/ (via generators/build.sh) and,
 # on merge to main, publishes them as zips to S3.
 #
 # Adding a new agent later requires NO change here: the build script emits one

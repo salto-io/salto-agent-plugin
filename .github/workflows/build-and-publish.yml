@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          VERSION=$(jq -r .version core/meta.json)
+          VERSION=$(jq -r .version meta.json)
           AGENTS=()
           for d in dist/*/; do
             agent=$(basename "$d")

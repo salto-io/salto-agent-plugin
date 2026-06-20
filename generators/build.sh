@@ -87,14 +87,6 @@ build_copilot() {
   skilldir="$out/.github/skills/salto"
 
   emit_skill "$skilldir/SKILL.md" "$skilldir" "$base"
-
-  cat >"$out/AGENTS.md" <<'EOF'
-# Salto
-
-This repo ships the **salto** agent skill at `.github/skills/salto/SKILL.md`.
-
-For any task against a Salto NACL workspace (deploy a change, explore/inspect state, or migrate CPQ→RLM), load that skill and follow its router.
-EOF
 }
 
 # --- validation -------------------------------------------------------------
@@ -117,7 +109,6 @@ validate() {
     "copilot/.github/skills/salto/references/salto-deploy.md"
     "copilot/.github/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "copilot/.github/skills/salto/adapters/zendesk/zendesk.md"
-    "copilot/AGENTS.md"
   )
   for f in "${required[@]}"; do
     [ -f "$DIST/$f" ] || { echo "FAIL: missing required file $f" >&2; problems=1; }

@@ -6,11 +6,13 @@ name: Build & Publish agent skills
 # Adding a new agent later requires NO change here: the build script emits one
 # directory per agent under dist/, and this workflow zips/publishes whatever it finds.
 #
+# Publishes to s3://<S3_BUCKET>/<S3_PREFIX>/<version>/ and s3://<S3_BUCKET>/<S3_PREFIX>/latest/.
+#
 # Required GitHub config (Settings -> Secrets and variables -> Actions):
 #   Variables:
-#     AWS_REGION   - e.g. us-east-1
-#     S3_BUCKET    - target bucket name (no s3:// prefix)
-#     S3_PREFIX    - optional key prefix (default: agent-skills)
+#     AWS_REGION   - region of the bucket, e.g. us-east-1            [required]
+#     S3_BUCKET    - override target bucket   (default: salto-saas-cli)
+#     S3_PREFIX    - override key prefix      (default: salto-agent-plugin)
 #   Secrets:
 #     AWS_ACCESS_KEY_ID
 #     AWS_SECRET_ACCESS_KEY
@@ -71,8 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
-      S3_BUCKET: ${{ vars.S3_BUCKET }}
-      S3_PREFIX: ${{ vars.S3_PREFIX || 'agent-skills' }}
+      S3_BUCKET: ${{ vars.S3_BUCKET || 'salto-saas-cli' }}
+      S3_PREFIX: ${{ vars.S3_PREFIX || 'salto-agent-plugin' }}
     steps:
       - name: Verify required config
         run: |

@@ -39,16 +39,15 @@ copy_tree() {
 }
 
 # Emit the skill bundle (SKILL.md already carries its own frontmatter) for a given base.
-# Also stamps a version.json next to SKILL.md so salto-cli can read the installed
-# version (same relative location on every agent) and compare it to latest/manifest.json.
+# Also stamps a plain VERSION file (one SemVer line) next to SKILL.md so salto-cli can
+# read the installed version (same relative location on every agent) and compare it to
+# latest/manifest.json.
 emit_skill() {
-  local skill_dest="$1" support_dest="$2" base="$3" skill_dir skill_name
+  local skill_dest="$1" support_dest="$2" base="$3" skill_dir
   skill_dir="$(dirname "$skill_dest")"
-  skill_name="$(basename "$skill_dir")"
   mkdir -p "$skill_dir"
   subst "$base" <"$SRC/SKILL.md" >"$skill_dest"
-  jq -n --arg name "$skill_name" --arg version "$VERSION" \
-    '{name: $name, version: $version}' >"$skill_dir/version.json"
+  printf '%s\n' "$VERSION" >"$skill_dir/VERSION"
   copy_tree "$SRC/references" "$support_dest/references" "$base"
   copy_tree "$SRC/adapters" "$support_dest/adapters" "$base"
 }
@@ -108,13 +107,13 @@ validate() {
     "claude/.claude-plugin/plugin.json"
     "claude/.claude-plugin/marketplace.json"
     "claude/skills/salto/SKILL.md"
-    "claude/skills/salto/version.json"
+    "claude/skills/salto/VERSION"
     "claude/references/salto-deploy.md"
     "claude/references/salto-explore.md"
     "claude/adapters/salesforce/cpq-to-rlm-migration.md"
     "claude/adapters/zendesk/zendesk.md"
     "copilot/.github/skills/salto/SKILL.md"
-    "copilot/.github/skills/salto/version.json"
+    "copilot/.github/skills/salto/VERSION"
     "copilot/.github/skills/salto/references/salto-deploy.md"
     "copilot/.github/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "copilot/.github/skills/salto/adapters/zendesk/zendesk.md"

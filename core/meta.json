@@ -1,0 +1,21 @@
+{
+  "skill": {
+    "name": "salto",
+    "description": "Single entry point for all Salto workflows. Type a natural-language request and the skill routes it internally — deploy (make changes), explore (query/inspect), or migrate (CPQ→RLM rebuild) — and loads adapter-specific knowledge as needed. Use this for any task against a Salto NACL workspace."
+  },
+  "version": "0.1.5",
+  "plugin": {
+    "name": "salto-cli-skills",
+    "description": "Claude Code skills for automating Salto NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.",
+    "author": { "name": "Salto Inc", "url": "https://www.salto.io" },
+    "homepage": "https://www.salto.io",
+    "repository": "https://github.com/salto-io/salto-agent-plugin",
+    "license": "UNLICENSED",
+    "keywords": ["salto", "nacl", "deployment", "salesforce", "okta", "zendesk", "netsuite", "jira", "configuration"]
+  },
+  "marketplace": {
+    "name": "salto-claude-plugin",
+    "owner": { "name": "Salto Inc", "url": "https://www.salto.io" },
+    "description": "Claude Code skills for automating Salto NACL workflows — fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments."
+  }
+}

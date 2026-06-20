@@ -6,11 +6,12 @@ Claude Code skills for automating [Salto](https://www.salto.io) NACL workflows: 
 
 A single slash command:
 
-- `/salto "<natural language request>"` — single entry point. Internally routes between two workflows based on what you ask:
+- `/salto "<natural language request>"` — single entry point. Internally routes between workflows based on what you ask:
   - **Deploy** (add / rename / delete / change / fix): orchestrates a full NACL change end-to-end — edit → local-validate (with security checks) → push → SaaS preview → PR + deployment.
-  - **Explore** (what / show / list / compare): read-only inspection of a workspace. Lists elements, browses deployment history, previews what would change, compares environments. No writes.
+  - **Explore** (what / show / list): read-only inspection of a workspace. Lists elements, browses deployment history, previews what would change. No writes.
+  - **Migrate** (CPQ → RLM/RCA): semantic rebuild of a Salesforce CPQ configuration into RLM (Revenue Cloud Advanced), read-only on the source, with human review gates.
 
-Adapter-specific knowledge (currently Zendesk) is loaded automatically based on what your workspace uses. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
+Adapter-specific knowledge is loaded automatically based on what your workspace uses, from a per-adapter directory (`adapters/<adapter>/`). The Salesforce directory also carries CPQ, RLM, and the CPQ→RLM migration knowledge. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
 
 ## Prerequisites
 
@@ -21,13 +22,13 @@ Adapter-specific knowledge (currently Zendesk) is loaded automatically based on 
 ## Install in Claude Code
 
 ```
-/plugin marketplace add salto-io/salto-claude-plugin
+/plugin marketplace add salto-io/salto-agent-plugin
 /plugin install salto-cli-skills@salto-claude-plugin
 ```
 
 The plugin is hosted in a private GitHub repo, so Claude Code needs your GitHub credentials to fetch it. Either:
 - Be authenticated via `gh auth login` (Claude Code picks this up automatically), or
-- Export `GITHUB_TOKEN` with a PAT that has `repo:read` on `salto-io/salto-claude-plugin`.
+- Export `GITHUB_TOKEN` with a PAT that has `repo:read` on `salto-io/salto-agent-plugin`.
 
 ## Required environment variables
 
@@ -69,7 +70,7 @@ If the skills detect a `salto-cli` version older than the minimum they require, 
 
 ## Reporting issues
 
-Open an issue at https://github.com/salto-io/salto-claude-plugin/issues, or contact Salto support.
+Open an issue at https://github.com/salto-io/salto-agent-plugin/issues, or contact Salto support.
 
 ## License
 

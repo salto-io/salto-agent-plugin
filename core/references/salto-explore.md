@@ -14,7 +14,6 @@ Answer questions about a Salto workspace without making any changes. Reads NACL 
 - **Inspect a specific element**: "show me the ai_review_test trigger"
 - **Change preview**: "what would change if I deployed now?"
 - **Deployment history**: "list my recent deployments", "show deployment abc123"
-- **Environment compare**: "compare prod and staging for Zendesk triggers"
 - **Workspace info**: "what adapters are configured?", "what environments do I have?"
 
 ## Requirements
@@ -29,5 +28,4 @@ Answer questions about a Salto workspace without making any changes. Reads NACL 
 /salto-explore "show me the ai_review_test trigger" --workspace ~/workspaces/prod
 /salto-explore "list deployments"
 /salto-explore "what would change if I deployed now?" --deployment-id abc123
-/salto-explore "compare prod and staging"
 ```

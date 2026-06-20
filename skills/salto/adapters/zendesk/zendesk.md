@@ -7,6 +7,7 @@ This file is loaded automatically by salto-deploy and salto-explore when the wor
 ## Element Types and NACL ID Pattern
 
 Every Zendesk element uses the pattern:
+
 ```
 zendesk.<type_name>.instance.<element_name>
 ```
@@ -15,37 +16,37 @@ zendesk.<type_name>.instance.<element_name>
 
 ### Core element types
 
-| NACL type name | Zendesk concept |
-|----------------|----------------|
-| `trigger` | Trigger |
-| `trigger_category` | Trigger category |
-| `trigger_order` | Trigger rendering order (separate from the trigger itself) |
-| `automation` | Automation |
-| `automation_order` | Automation rendering order |
-| `view` | View |
-| `view_order` | View rendering order |
-| `macro` | Macro |
-| `sla_policy` | SLA Policy |
-| `sla_policy_order` | SLA Policy rendering order |
-| `webhook` | Webhook |
-| `ticket_field` | Ticket Field (custom or system) |
-| `ticket_form` | Ticket Form |
-| `ticket_form_order` | Ticket Form rendering order |
-| `user_field` | User Field |
-| `organization_field` | Organization Field |
-| `user_segment` | User Segment |
-| `dynamic_content_item` | Dynamic Content Item |
-| `group` | Group |
-| `brand` | Brand |
-| `custom_role` | Custom Role |
-| `workspace` | Zendesk Workspace (agent interface layout) |
-| `workspace_order` | Workspace rendering order |
-| `routing_attribute` | Routing Attribute (for Skills routing) |
-| `routing_attribute_value` | Routing Attribute Value |
-| `business_hours_schedule` | Business Hours Schedule |
-| `sharing_agreement` | Sharing Agreement |
-| `support_address` | Support Address (email) |
-| `target` | Target (outbound webhook target) |
+| NACL type name            | Zendesk concept                                            |
+| ------------------------- | ---------------------------------------------------------- |
+| `trigger`                 | Trigger                                                    |
+| `trigger_category`        | Trigger category                                           |
+| `trigger_order`           | Trigger rendering order (separate from the trigger itself) |
+| `automation`              | Automation                                                 |
+| `automation_order`        | Automation rendering order                                 |
+| `view`                    | View                                                       |
+| `view_order`              | View rendering order                                       |
+| `macro`                   | Macro                                                      |
+| `sla_policy`              | SLA Policy                                                 |
+| `sla_policy_order`        | SLA Policy rendering order                                 |
+| `webhook`                 | Webhook                                                    |
+| `ticket_field`            | Ticket Field (custom or system)                            |
+| `ticket_form`             | Ticket Form                                                |
+| `ticket_form_order`       | Ticket Form rendering order                                |
+| `user_field`              | User Field                                                 |
+| `organization_field`      | Organization Field                                         |
+| `user_segment`            | User Segment                                               |
+| `dynamic_content_item`    | Dynamic Content Item                                       |
+| `group`                   | Group                                                      |
+| `brand`                   | Brand                                                      |
+| `custom_role`             | Custom Role                                                |
+| `workspace`               | Zendesk Workspace (agent interface layout)                 |
+| `workspace_order`         | Workspace rendering order                                  |
+| `routing_attribute`       | Routing Attribute (for Skills routing)                     |
+| `routing_attribute_value` | Routing Attribute Value                                    |
+| `business_hours_schedule` | Business Hours Schedule                                    |
+| `sharing_agreement`       | Sharing Agreement                                          |
+| `support_address`         | Support Address (email)                                    |
+| `target`                  | Target (outbound webhook target)                           |
 
 ---
 
@@ -132,6 +133,7 @@ zendesk.trigger_order.instance.trigger_order {
 ### Adding a new automation
 
 Same pattern as triggers, but:
+
 - Type: `zendesk.automation.instance.<name>`
 - Order element: `zendesk.automation_order.instance.automation_order`
 - `conditions.all` and `conditions.any` are both required.
@@ -159,6 +161,7 @@ category_id = 12345678
 ```
 
 Before referencing any element (category, group, webhook, etc.), verify it exists in the workspace:
+
 ```bash
 grep -rn "zendesk.<type>.instance.<name>" "${WORKSPACE}/envs/<env>/zendesk/" --include="*.nacl"
 ```
@@ -168,6 +171,7 @@ grep -rn "zendesk.<type>.instance.<name>" "${WORKSPACE}/envs/<env>/zendesk/" --i
 ## Validation Pitfalls
 
 **Duplicate display names** — Zendesk does not enforce name uniqueness, but Salto derives the NACL element ID from the name. Two elements with the same name get the same NACL ID; one is silently dropped. Always check before creating:
+
 ```bash
 grep -rn '"Your Trigger Name"' "${WORKSPACE}/envs/<env>/zendesk/" --include="*.nacl"
 ```
@@ -179,11 +183,13 @@ grep -rn '"Your Trigger Name"' "${WORKSPACE}/envs/<env>/zendesk/" --include="*.n
 **Boolean quoting** — use `true`/`false` (unquoted). `"true"` is a string and will cause a type error.
 
 **Tag value format** — in `add_tags` actions, the value is a single space-separated string:
+
 ```nacl
 { field = "add_tags", value = "tag1 tag2 tag3" }
 ```
 
 **conditions structure** — both `all` and `any` must be present, even if empty:
+
 ```nacl
 conditions = {
   all = []
@@ -192,6 +198,7 @@ conditions = {
 ```
 
 **Condition `field` values for common use cases**:
+
 - Ticket status: `"status"` with values `"new"`, `"open"`, `"pending"`, `"solved"`, `"closed"`
 - Ticket tags: `"tags"` with operator `"includes"` or `"not_includes"`
 - Assignee: `"assignee_id"` with operator `"is"` or `"is_not"`

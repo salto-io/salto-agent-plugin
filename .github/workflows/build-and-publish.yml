@@ -1,0 +1,109 @@
+name: Build & Publish agent skills
+
+# Builds the per-agent skill bundles from skills/salto/ (via generators/build.sh) and,
+# on merge to main, publishes them as zips to S3.
+#
+# Adding a new agent later requires NO change here: the build script emits one
+# directory per agent under dist/, and this workflow zips/publishes whatever it finds.
+#
+# Publishes to s3://<S3_BUCKET>/<S3_PREFIX>/<version>/ and s3://<S3_BUCKET>/<S3_PREFIX>/latest/.
+#
+# Required GitHub config (Settings -> Secrets and variables -> Actions):
+#   Variables:
+#     AWS_REGION   - region of the bucket, e.g. us-east-1            [required]
+#     S3_BUCKET    - override target bucket   (default: salto-saas-cli)
+#     S3_PREFIX    - override key prefix      (default: salto-agent-plugin)
+#   Secrets:
+#     AWS_ACCESS_KEY_ID
+#     AWS_SECRET_ACCESS_KEY
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: build-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build bundles
+        run: ./generators/build.sh
+
+      - name: Package per-agent zips + manifest
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          VERSION=$(jq -r .version meta.json)
+          AGENTS=()
+          for d in dist/*/; do
+            agent=$(basename "$d")
+            AGENTS+=("$agent")
+            ( cd "$d" && zip -qr "$GITHUB_WORKSPACE/out/${agent}.zip" . )
+            echo "packaged ${agent}.zip"
+          done
+          printf '%s\n' "${AGENTS[@]}" | jq -R . | jq -s \
+            --arg version "$VERSION" \
+            --arg commit "$GITHUB_SHA" \
+            --arg builtAt "$(date -u +%FT%TZ)" \
+            '{version: $version, commit: $commit, builtAt: $builtAt, agents: .}' \
+            > out/manifest.json
+          echo "--- manifest.json ---"
+          cat out/manifest.json
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-skills
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      S3_BUCKET: ${{ vars.S3_BUCKET || 'salto-saas-cli' }}
+      S3_PREFIX: ${{ vars.S3_PREFIX || 'salto-agent-plugin' }}
+    steps:
+      - name: Verify required config
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?Set the AWS_REGION repository variable}"
+          : "${S3_BUCKET:?Set the S3_BUCKET repository variable}"
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-skills
+          path: out
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish to S3 (versioned + latest)
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version out/manifest.json)
+          base="s3://${S3_BUCKET}/${S3_PREFIX}"
+          echo "Publishing version ${VERSION} to ${base}/{${VERSION},latest}/"
+          for f in out/*.zip out/manifest.json; do
+            name=$(basename "$f")
+            aws s3 cp "$f" "${base}/${VERSION}/${name}"
+            aws s3 cp "$f" "${base}/latest/${name}"
+          done
+          echo "Done."

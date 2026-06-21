@@ -18,9 +18,9 @@ In both modes, state is downloaded directly from the target environment — no "
 
 ## Guardrails
 
-- All edits happen inside a git worktree on a `claude/<task-slug>` branch. Never modify the user's working tree.
+- All edits happen inside a git worktree on a `salto/<task-slug>` branch. Never modify the user's working tree.
 - Never push until the local plan is clean (zero `changeErrors`). If `validate-local` fails for any reason, stop — do not push.
-- Never force-push to any branch outside `claude/*`.
+- Never force-push to any branch outside `salto/*`.
 - Stop immediately on auth or credential errors. Report clearly and do not attempt to debug credentials.
 - Bounded loops: max 5 local iterations, max 3 SaaS iterations. If either limit is hit, stop and summarise what remains unresolved.
 
@@ -247,7 +247,7 @@ echo "Pulled latest of ${ORIGINAL_BRANCH} from origin."
 
 ```bash
 TIMESTAMP=$(date +%s)
-BRANCH="claude/${task-slug}-${TIMESTAMP}"
+BRANCH="salto/${task-slug}-${TIMESTAMP}"
 
 git -C "${GIT_ROOT}" worktree add -b "${BRANCH}" "${GIT_ROOT}/../$(basename ${GIT_ROOT})-${BRANCH//\//-}"
 ```

@@ -4,7 +4,7 @@ This is reference content. It is not registered as a slash command. The `/salto`
 
 > [!NOTE]
 >
-> Invoked via: /salto "<deploy request>" [--workspace <path>] [--deployment-id <id> | --branch-name <name>] [--max-local-iterations <n>] [--max-saas-iterations <n>] [--jira <issue-key>]
+> Invoked via: /salto "<deploy request>" [--workspace <path>] [--deployment-id <id> | --branch-name <name>] [--max-local-iterations <n>] [--max-saas-iterations <n>] [--ticket <id-or-url>]
 
 Orchestrate NACL changes from edit to SaaS-validated PR. Handles both new and existing Salto deployments.
 
@@ -65,14 +65,16 @@ From `$ARGUMENTS`, extract:
 - `--branch-name <name>` — identify existing deployment by its linked branch (forces existing-deployment mode).
 - `--max-local-iterations <n>` — default 5.
 - `--max-saas-iterations <n>` — default 3.
-- `--jira <issue-key>` — Jira ticket this change belongs to (used in Step 10b to comment back on the ticket).
+- `--ticket <id-or-url>` — the work item / ticket this change belongs to, in **any** ticketing system (Jira issue key, Azure DevOps work-item id or URL, GitHub issue, Linear, etc.). Used in Step 10b to comment back on the ticket. (`--jira <issue-key>` is accepted as an alias.)
 
-**Detect an involved Jira ticket.** If `--jira` was not passed, scan the description for a Jira issue-key pattern (`[A-Z][A-Z0-9]+-[0-9]+`, e.g. `SALTO-1234`):
-- exactly one match → store it as `JIRA_KEY` and print `Jira ticket: <key>`;
-- multiple distinct keys → ask the user which one is the ticket for this change;
-- none → leave `JIRA_KEY` empty (Step 10b is skipped).
+**Detect an involved ticket.** If `--ticket`/`--jira` was not passed, scan the description for a recognizable ticket reference — for example:
+- a Jira-style key: `[A-Z][A-Z0-9]+-[0-9]+` (e.g. `SALTO-1234`);
+- an Azure DevOps work item: `AB#<n>` or a `dev.azure.com/.../_workitems/edit/<n>` URL;
+- any other ticket URL the user includes in the description.
 
-**Decisions log.** Initialize an empty `DECISIONS_LOG`. From here on, whenever the user makes a decision during this run — answers a clarifying question (target env, which Jira key), approves pushing despite warnings, decides how to handle a security issue (Step 6e) or an iteration-limit stop (Steps 6d/11d), or changes scope — append a one-line `question → user's answer` entry. Step 10b posts these to the Jira ticket.
+Then: exactly one match → store it as `TICKET_REF` and print `Ticket: <ref>`; multiple distinct matches → ask the user which one is the ticket for this change; none → leave `TICKET_REF` empty (Step 10b is skipped).
+
+**Decisions log.** Initialize an empty `DECISIONS_LOG`. From here on, whenever the user makes a decision during this run — answers a clarifying question (target env, which ticket), approves pushing despite warnings, decides how to handle a security issue (Step 6e) or an iteration-limit stop (Steps 6d/11d), or changes scope — append a one-line `question → user's answer` entry. Step 10b posts these to the ticket.
 
 Derive a `task-slug` from the description: lowercase, spaces → hyphens, max 40 chars.
 
@@ -493,9 +495,9 @@ If still empty after polling, stop:
 > 2. Open the Salto UI → create a deployment manually → re-run with `--deployment-id <id>`.
 > 3. Re-run with `--branch-name ${BRANCH}` after waiting for the webhook to fire."
 
-### Step 10b: Comment on the involved Jira ticket (conditional, never blocking)
+### Step 10b: Comment on the involved ticket (conditional, never blocking)
 
-Runs only when **all three** hold: `JIRA_KEY` is set (Step 2), a PR was opened (`PR_URL`), and a Salto deployment exists (`DEPLOYMENT_ID`). Otherwise skip silently.
+Runs only when **all three** hold: `TICKET_REF` is set (Step 2), a PR was opened (`PR_URL`), and a Salto deployment exists (`DEPLOYMENT_ID`). Otherwise skip silently.
 
 Build the comment body from data already in hand:
 
@@ -513,16 +515,20 @@ ${DECISIONS_LOG entries, one bullet each — verbatim question → answer}
 
 If `DECISIONS_LOG` is empty, write `No user decisions were required — change applied as requested.` instead of an empty section.
 
-Post it using whatever Jira capability is available, in this order:
+Post it using whatever ticketing capability is available — this step is **ticketing-system-agnostic**; use whichever system the user's workspace is connected to. Try in this order:
 
-1. **Atlassian/Jira MCP tool** (e.g. `addCommentToJiraIssue`) — discover via tool search if not already loaded; resolve the cloud id first if the tool requires it (e.g. `getAccessibleAtlassianResources`).
-2. **`jira` CLI** if installed and authenticated.
-3. **Neither available** → print the comment body and ask the user to paste it on `${JIRA_KEY}` manually.
+1. **A ticketing MCP server** — discover via tool search and use its "add comment / add work-item comment" capability. This covers any connected system, for example:
+   - Atlassian / Jira (e.g. `addCommentToJiraIssue`; resolve the cloud id first if the tool requires it, e.g. `getAccessibleAtlassianResources`),
+   - Azure DevOps / ADO (a work-item comment tool; resolve organization/project if required),
+   - GitHub Issues, Linear, or any other connected ticketing MCP.
+   Match the tool to the `TICKET_REF` format detected in Step 2, and supply whatever identifiers that tool needs (issue key, work-item id, org/project, repo, etc.).
+2. **A ticketing CLI** if installed and authenticated (e.g. `jira`, `az boards` for Azure DevOps, `gh issue comment` for GitHub).
+3. **Nothing available** → print the comment body and ask the user to paste it on `${TICKET_REF}` manually.
 
 Outcome handling:
 
-- Success → print `Jira: commented on ${JIRA_KEY}`.
-- Failure (auth, permissions, bad key, tool error) → **do not fail or retry-loop the run.** Print a one-line warning, dump the comment body so the user can post it manually, and continue to Step 11. A Jira hiccup must never block the deployment pipeline.
+- Success → print `Ticket: commented on ${TICKET_REF}`.
+- Failure (auth, permissions, bad ref, tool error) → **do not fail or retry-loop the run.** Print a one-line warning, dump the comment body so the user can post it manually, and continue to Step 11. A ticketing hiccup must never block the deployment pipeline.
 
 ### Step 11: SaaS preview loop (max: --max-saas-iterations, default 3)
 
@@ -560,7 +566,7 @@ Then print a **Pipeline results** summary containing ONLY:
 
 - **PR**: `${PR_URL}`
 - **Deployment**: `${DEPLOYMENT_ID}` (+ Salto UI link)
-- **Jira**: `commented on ${JIRA_KEY}` / `comment failed — body printed for manual posting` / omit the line entirely when no ticket was involved
+- **Ticket**: `commented on ${TICKET_REF}` / `comment failed — body printed for manual posting` / omit the line entirely when no ticket was involved
 - **Branch**: `${BRANCH}` (base: `${ORIGINAL_BRANCH}`)
 - **Changes made**: one line (or a short table) per element added / modified / removed
 - **Change-validator status** — print one dot for the final **local** `validate-local` result and one for the final **SaaS** `preview` result, judged on the elements this PR touched (`relevantErrors`), per the convention below.
@@ -614,9 +620,10 @@ cd ~/path/to/your/salto-workspace
 # Existing deployment (state fetched from it; preview runs against it):
 /salto-deploy "fix salesforce field label" --deployment-id abc123
 
-# Jira-linked change — ticket auto-detected from the description (or pass --jira):
+# Ticket-linked change — ticket auto-detected from the description (or pass --ticket):
 /salto-deploy "SALTO-1234 add validation rule on Account.Website"
-/salto-deploy "add validation rule on Account.Website" --jira SALTO-1234
+/salto-deploy "add validation rule on Account.Website" --ticket SALTO-1234
+/salto-deploy "add validation rule on Account.Website" --ticket AB#4567   # Azure DevOps work item
 ```
 
 ## Notes

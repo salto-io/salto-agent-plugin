@@ -1,0 +1,23 @@
+name: Trigger sync-salto-skill
+
+# Triggers the `sync-salto-skill.yml` workflow in salto-io/slack-agent-workspace
+# on every commit pushed to main.
+on:
+  push:
+    branches:
+      - main
+
+# Allow manual runs too.
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch sync-salto-skill workflow
+        env:
+          GH_TOKEN: ${{ secrets.WORKSPACE_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run sync-salto-skill.yml \
+            --repo salto-io/slack-agent-workspace \
+            --ref main

@@ -12,7 +12,7 @@ Orchestrate NACL changes from edit to SaaS-validated PR. Handles both new and ex
 
 **Existing deployment** — pass `--deployment-id` or `--branch-name`. The skill edits locally, validates against the target env's state (auto-fetched), then runs `deployment preview` against that existing deployment.
 
-**New deployment** (default) — no deployment ID provided. The skill edits and validates locally first (state auto-fetched from the target env), pushes, creates a PR via `gh` (or prints a compare URL as a fallback), then creates a Salto deployment from the PR via `salto-cli deployment create from-pull-request`.
+**New deployment** (default) — no deployment ID provided. The skill edits and validates locally first (state auto-fetched from the target env), pushes, creates a PR via the git host's CLI (`gh` for GitHub, `az repos` for Azure DevOps — or prints a create URL as a fallback), then creates a Salto deployment from the PR via `salto-cli deployment create from-pull-request`.
 
 In both modes, state is downloaded directly from the target environment — no "seed deployment" is needed.
 
@@ -86,7 +86,9 @@ Run all checks and collect every failure before reporting. Do not stop at the fi
 
 1. **SALTO_API_TOKEN set**: `[ -n "$SALTO_API_TOKEN" ]` — if missing, add to failures: "SALTO_API_TOKEN is not set."
 2. **salto-cli available**: `which salto-cli` — if missing, add to failures: "salto-cli not found in PATH."
-   2b. **gh CLI availability** (informational, never a failure): probe with `which gh >/dev/null && gh auth status >/dev/null 2>&1`. Set `GH_AVAILABLE=true` if both succeed, else `GH_AVAILABLE=false`. Used in Step 9 to decide whether to create the PR automatically or fall back to printing the compare URL.
+   2b. **PR-tool availability** (informational, never a failure): probe the PR CLI for each supported git host so Step 9 can decide whether to open the PR automatically or fall back to a manual create URL.
+   - GitHub: `which gh >/dev/null && gh auth status >/dev/null 2>&1` → set `GH_AVAILABLE=true|false`.
+   - Azure DevOps: `which az >/dev/null && az repos -h >/dev/null 2>&1` → set `AZ_AVAILABLE=true|false` (the `az repos` commands come from the `azure-devops` CLI extension; auth is via `az login` or an `AZURE_DEVOPS_EXT_PAT` env var). Auth problems surface at create time and are handled there, like `gh`.
 3. **Is a Salto workspace**:
 
    - `salto.config/workspace.nacl` exists and contains a `uid` field → store as `WORKSPACE_UID`
@@ -132,12 +134,14 @@ Run all checks and collect every failure before reporting. Do not stop at the fi
 
 4. **Git repository**: `git -C "${WORKSPACE}" rev-parse --show-toplevel` → store as `GIT_ROOT`. If fails, add to failures: "Workspace is not inside a git repository."
 
-5. **Git remote (GitHub)**:
+5. **Git remote (GitHub or Azure DevOps)**:
 
    - Run `git -C "${WORKSPACE}" remote get-url origin`
-   - If no `origin`, add to failures: "No git remote 'origin' — workspace must be connected to GitHub."
-   - If URL contains `github.com`, parse `owner/repo` → store as `GITHUB_REPO`. Print: `GitHub repo: <owner/repo>`
-   - If URL does not contain `github.com`, add warning (non-fatal): "Remote is not a GitHub URL. Push and PR creation may fail."
+   - If no `origin`, add to failures: "No git remote 'origin' — workspace must be connected to a supported git host (GitHub or Azure DevOps)."
+   - Detect the host from the URL and set `GIT_PROVIDER`:
+     - Contains `github.com` → `GIT_PROVIDER=github`; parse `owner/repo` → store as `GITHUB_REPO`. Print: `Git host: GitHub (<owner/repo>)`.
+     - Contains `dev.azure.com` or `*.visualstudio.com` → `GIT_PROVIDER=azure`; parse the **organization**, **project**, and **repo** (e.g. `https://dev.azure.com/<org>/<project>/_git/<repo>`, the `<org>@dev.azure.com/...` SSH-over-HTTPS form, or legacy `https://<org>.visualstudio.com/<project>/_git/<repo>`). Store `ADO_ORG`, `ADO_PROJECT`, `ADO_REPO`. Print: `Git host: Azure DevOps (<org>/<project>/<repo>)`.
+     - Otherwise → `GIT_PROVIDER=other`; add warning (non-fatal): "Remote host is neither GitHub nor Azure DevOps. PR creation will fall back to manual (Step 9, Path C)."
 
 6. **Remote reachable**: `git -C "${WORKSPACE}" ls-remote --exit-code origin HEAD` — if fails, add warning: "Cannot reach remote origin. Check git credentials."
 
@@ -161,7 +165,7 @@ Do this for every adapter found. Missing adapter files are silently skipped — 
 
 ### Step 3c: Capture the current branch (deterministic)
 
-Read it from git **before** any worktree work. This is the branch the PR will target. We need it both for Step 9 (`gh pr create --base`) and for the Step 3d precondition check below.
+Read it from git **before** any worktree work. This is the branch the PR will target. We need it both for Step 9 (it is the PR's base branch) and for the Step 3d precondition check below.
 
 ```bash
 ORIGINAL_BRANCH=$(git -C "${GIT_ROOT}" symbolic-ref --short HEAD 2>/dev/null)
@@ -357,11 +361,9 @@ git -C "${WORKTREE_PATH}" push -u origin "${BRANCH}"
 
 ### Step 9: Open the PR
 
-Pick a path based on the pre-flight detection:
+Pick a path based on the detected `GIT_PROVIDER` and PR-tool availability (from the pre-flight checks).
 
-**Path A — `gh` available and the remote is GitHub** (`GH_AVAILABLE=true` AND `GITHUB_REPO` is set): create the PR programmatically. Do not open a browser. Do not ask the user to do anything in the UI.
-
-First build a substantive PR body. Boilerplate like "Created by /salto-deploy" is wasted screen space — the body should answer "what is this change and is it safe to deploy?". Pull the data we already have from Step 6 (the clean validate-local plan) plus a file list from git:
+First, build a substantive PR body — **shared by all hosts**. Boilerplate like "Created by /salto-deploy" is wasted screen space — the body should answer "what is this change and is it safe to deploy?". Pull the data we already have from Step 6 (the clean validate-local plan) plus a file list from git:
 
 ```bash
 # Files touched by the new commit relative to ORIGINAL_BRANCH. Limit to NACL so we don't show
@@ -406,6 +408,13 @@ Salto will create a deployment from this PR (target env: \`${ENV_NAME}\`, ${ENV_
 EOF
 )
 
+```
+
+**Path A — the host's PR CLI is available** (create the PR programmatically; no browser, no UI step):
+
+*GitHub* (`GIT_PROVIDER=github` AND `GH_AVAILABLE=true`):
+
+```bash
 PR_URL=$(gh pr create \
   --repo "${GITHUB_REPO}" \
   --head "${BRANCH}" \
@@ -416,33 +425,58 @@ PR_URL=$(gh pr create \
 
 If `gh pr create` exits non-zero:
 
-- If the output contains "already exists for" → a PR is already open for this branch. Recover it:
-  ```bash
-  PR_URL=$(gh pr view "${BRANCH}" --repo "${GITHUB_REPO}" --json url -q .url)
-  ```
-- Otherwise stop and print the `gh` error verbatim. Do not retry blindly.
+- output contains "already exists for" → recover the open PR: `PR_URL=$(gh pr view "${BRANCH}" --repo "${GITHUB_REPO}" --json url -q .url)`
+- otherwise stop and print the `gh` error verbatim. Do not retry blindly.
+
+*Azure DevOps* (`GIT_PROVIDER=azure` AND `AZ_AVAILABLE=true`) — needs the `azure-devops` extension; `--description` takes the multi-line `PR_BODY` as a single value:
+
+```bash
+PR_JSON=$(az repos pr create \
+  --organization "https://dev.azure.com/${ADO_ORG}" \
+  --project "${ADO_PROJECT}" \
+  --repository "${ADO_REPO}" \
+  --source-branch "${BRANCH}" \
+  --target-branch "${ORIGINAL_BRANCH}" \
+  --title "${description}" \
+  --description "${PR_BODY}" \
+  --output json 2>&1)
+PR_URL=$(echo "$PR_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"https://dev.azure.com/${ADO_ORG}/${ADO_PROJECT}/_git/${ADO_REPO}/pullrequest/{d['pullRequestId']}\")" 2>/dev/null)
+```
+
+If `az repos pr create` errors that an active PR already exists for the source branch, recover it:
+
+```bash
+PR_URL=$(az repos pr list \
+  --organization "https://dev.azure.com/${ADO_ORG}" --project "${ADO_PROJECT}" \
+  --repository "${ADO_REPO}" --source-branch "${BRANCH}" --status active --output json \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"https://dev.azure.com/${ADO_ORG}/${ADO_PROJECT}/_git/${ADO_REPO}/pullrequest/{d[0]['pullRequestId']}\" if d else '')")
+```
+
+Otherwise stop and print the `az` error verbatim. Do not retry blindly.
 
 Print: `PR created: ${PR_URL}`
 
-**Path B — `gh` not available but the remote is GitHub** (`GH_AVAILABLE=false` AND `GITHUB_REPO` is set): fall back to printing the compare URL for manual creation.
+**Path B — host known but its PR CLI is unavailable** (print a create URL, then wait for the user to paste the resulting PR URL):
 
 ```bash
-COMPARE_URL="https://github.com/${GITHUB_REPO}/compare/${ORIGINAL_BRANCH}...${BRANCH}?expand=1"
+# GitHub  (GIT_PROVIDER=github, GH_AVAILABLE=false)
+CREATE_URL="https://github.com/${GITHUB_REPO}/compare/${ORIGINAL_BRANCH}...${BRANCH}?expand=1"
+# Azure DevOps  (GIT_PROVIDER=azure, AZ_AVAILABLE=false)
+CREATE_URL="https://dev.azure.com/${ADO_ORG}/${ADO_PROJECT}/_git/${ADO_REPO}/pullrequestcreate?sourceRef=${BRANCH}&targetRef=${ORIGINAL_BRANCH}"
 ```
 
 Print:
 
-> "Branch pushed. `gh` is not installed or not authenticated, so I cannot create the PR for you.
-> Open this URL to create the PR:
-> **`${COMPARE_URL}`**
+> "Branch pushed. I can't open the PR automatically (the host's CLI — `gh` / `az` — isn't installed or authenticated). Open this URL to create the PR:
+> **`${CREATE_URL}`**
 >
 > Once you've opened the PR, paste the PR URL here."
 
 Wait for the user to paste the PR URL → store as `PR_URL`.
 
-**Path C — remote is not GitHub** (`GITHUB_REPO` is unset): no webhook-based deployment creation is possible. Tell the user:
+**Path C — host is neither GitHub nor Azure DevOps** (`GIT_PROVIDER=other`): no automatic deployment creation is possible. Tell the user:
 
-> "Branch pushed to a non-GitHub remote. Open a PR in your hosting service, then either:
+> "Branch pushed to an unsupported git host. Open a PR there, then either:
 >
 > 1. Create a deployment manually in the Salto UI and re-run with `--deployment-id <id>`, or
 > 2. Re-run with `--branch-name ${BRANCH}` if your stack auto-creates deployments via some other mechanism."
@@ -453,7 +487,7 @@ Then stop the skill — Step 10 onwards requires a Salto deployment that won't e
 
 **Existing-deployment mode**: deployment ID is already known from `--deployment-id` / `--branch-name`. Skip this step.
 
-**New-deployment mode (Path A or B from Step 9 — we have a `PR_URL`)**: create the deployment directly via the CLI. This is synchronous and does not depend on the GitHub webhook being wired.
+**New-deployment mode (Path A or B from Step 9 — we have a `PR_URL`)**: create the deployment directly via the CLI. This is synchronous and does not depend on the host's webhook being wired.
 
 Always use `--target-env-id "${ENV_UUID}"` — same as Step 6b. `ENV_UUID` was resolved in Step 3 (immediately from `envsSaltoCloud.nacl` for cloud workspaces, via the GraphQL `me { orgMemberships { org { environments } } }` lookup for legacy ones). The env-name form is never safe across multiple accessible orgs.
 
@@ -469,7 +503,7 @@ DEPLOYMENT_ID=$(echo "$DEPLOYMENT_JSON" | python3 -c \
 
 If `DEPLOYMENT_ID` is set: print `Deployment ${DEPLOYMENT_ID} created from PR.` and continue.
 
-If `from-pull-request` fails (non-zero exit, no JSON, or empty `id`), fall back to polling for a webhook-created deployment (Salto's GitHub webhook may create it independently):
+If `from-pull-request` fails (non-zero exit, no JSON, or empty `id`), fall back to polling for a webhook-created deployment (Salto's webhook for the git host may create it independently):
 
 ```bash
 for i in $(seq 1 18); do
@@ -631,5 +665,5 @@ cd ~/path/to/your/salto-workspace
 - `validate-local` runs without adapter credentials. When state is missing, it auto-fetches from the provided `--deployment-id`.
 - SaaS preview and state fetching both require `SALTO_API_TOKEN`.
 - For staging environments, also export `GRAPHQL_URL` and `SALTO_URL` before running.
-- New-deployment mode relies on Salto's GitHub webhook. If the workspace isn't connected to GitHub, create the deployment manually in the UI and re-run with `--deployment-id`.
+- New-deployment mode creates the Salto deployment from the PR via `from-pull-request` (with the git host's webhook as a fallback), on **GitHub or Azure DevOps**. On any other git host, create the deployment manually in the UI and re-run with `--deployment-id`.
 - On auth errors (403, "Authentication Failed"), stop immediately — do not attempt to debug credentials.

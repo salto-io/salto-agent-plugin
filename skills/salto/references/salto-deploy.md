@@ -65,7 +65,7 @@ From `$ARGUMENTS`, extract:
 - `--branch-name <name>` — identify existing deployment by its linked branch (forces existing-deployment mode).
 - `--max-local-iterations <n>` — default 5.
 - `--max-saas-iterations <n>` — default 3.
-- `--ticket <id-or-url>` — the work item / ticket this change belongs to, in **any** ticketing system (Jira issue key, Azure DevOps work-item id or URL, GitHub issue, Linear, etc.). Used in Step 10b to comment back on the ticket. (`--jira <issue-key>` is accepted as an alias.)
+- `--ticket <id-or-url>` — the work item / ticket this change belongs to, in **any** ticketing system (Jira issue key, Azure DevOps work-item id or URL, etc.). Used in Step 10b to comment back on the ticket. (`--jira <issue-key>` is accepted as an alias.)
 
 **Detect an involved ticket.** If `--ticket`/`--jira` was not passed, scan the description for a recognizable ticket reference — for example:
 - a Jira-style key: `[A-Z][A-Z0-9]+-[0-9]+` (e.g. `SALTO-1234`);
@@ -74,10 +74,9 @@ From `$ARGUMENTS`, extract:
 
 Then: exactly one match → store it as `TICKET_REF` and print `Ticket: <ref>`; multiple distinct matches → ask the user which one is the ticket for this change; none → leave `TICKET_REF` empty (Step 10b is skipped).
 
-**If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first — using the tool that matches the workspace's git host, the **same `gh`-for-GitHub / `az`-for-Azure-DevOps** principle used for PRs in Step 9:
-- **Azure DevOps** remote → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; this is the `AZ_AVAILABLE` probe from Step 2b).
-- **GitHub** remote → `gh issue view <n> --repo <owner/repo>` (or `gh api` for the item).
-- Otherwise → a connected ticketing MCP (Jira, etc.).
+**If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first — using the tool that matches where the ticket lives:
+- **Azure DevOps** work item → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; the `AZ_AVAILABLE` probe from Step 2b). Use `az` whenever the workspace remote is Azure DevOps — the same way Step 9 uses `az repos` for the PR.
+- **Otherwise** → a connected ticketing MCP (e.g. Jira).
 
 Read the ticket's title/description to derive the actual change, then continue the workflow. Don't infer the change from the ticket id alone.
 
@@ -561,11 +560,10 @@ Post it using whatever ticketing capability is available — this step is **tick
 1. **A ticketing MCP server** — discover via tool search and use its "add comment / add work-item comment" capability. This covers any connected system, for example:
    - Atlassian / Jira (e.g. `addCommentToJiraIssue`; resolve the cloud id first if the tool requires it, e.g. `getAccessibleAtlassianResources`),
    - Azure DevOps / ADO (a work-item comment tool; resolve organization/project if required),
-   - GitHub Issues, Linear, or any other connected ticketing MCP.
+   - or any other connected ticketing MCP.
    Match the tool to the `TICKET_REF` format detected in Step 2, and supply whatever identifiers that tool needs (issue key, work-item id, org/project, repo, etc.).
-2. **A ticketing CLI** if installed and authenticated — match it to the git host, the same way Step 9 picks the PR tool:
-   - **Azure DevOps** → `az boards work-item update --id <n> --discussion "<comment body>" --organization https://dev.azure.com/<org>`
-   - **GitHub** → `gh issue comment <n> --body "<comment body>"`
+2. **A ticketing CLI** if installed and authenticated:
+   - **Azure DevOps** → `az boards work-item update --id <n> --discussion "<comment body>" --organization https://dev.azure.com/<org>` (use `az` whenever the remote is Azure DevOps, same as Step 9's PR tooling)
    - Jira → the `jira` CLI.
 3. **Nothing available** → print the comment body and ask the user to paste it on `${TICKET_REF}` manually.
 

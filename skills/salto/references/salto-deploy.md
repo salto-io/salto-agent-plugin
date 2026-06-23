@@ -74,6 +74,13 @@ From `$ARGUMENTS`, extract:
 
 Then: exactly one match → store it as `TICKET_REF` and print `Ticket: <ref>`; multiple distinct matches → ask the user which one is the ticket for this change; none → leave `TICKET_REF` empty (Step 10b is skipped).
 
+**If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first — using the tool that matches the workspace's git host, the **same `gh`-for-GitHub / `az`-for-Azure-DevOps** principle used for PRs in Step 9:
+- **Azure DevOps** remote → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; this is the `AZ_AVAILABLE` probe from Step 2b).
+- **GitHub** remote → `gh issue view <n> --repo <owner/repo>` (or `gh api` for the item).
+- Otherwise → a connected ticketing MCP (Jira, etc.).
+
+Read the ticket's title/description to derive the actual change, then continue the workflow. Don't infer the change from the ticket id alone.
+
 **Decisions log.** Initialize an empty `DECISIONS_LOG`. From here on, whenever the user makes a decision during this run — answers a clarifying question (target env, which ticket), approves pushing despite warnings, decides how to handle a security issue (Step 6e) or an iteration-limit stop (Steps 6d/11d), or changes scope — append a one-line `question → user's answer` entry. Step 10b posts these to the ticket.
 
 Derive a `task-slug` from the description: lowercase, spaces → hyphens, max 40 chars.
@@ -556,7 +563,10 @@ Post it using whatever ticketing capability is available — this step is **tick
    - Azure DevOps / ADO (a work-item comment tool; resolve organization/project if required),
    - GitHub Issues, Linear, or any other connected ticketing MCP.
    Match the tool to the `TICKET_REF` format detected in Step 2, and supply whatever identifiers that tool needs (issue key, work-item id, org/project, repo, etc.).
-2. **A ticketing CLI** if installed and authenticated (e.g. `jira`, `az boards` for Azure DevOps, `gh issue comment` for GitHub).
+2. **A ticketing CLI** if installed and authenticated — match it to the git host, the same way Step 9 picks the PR tool:
+   - **Azure DevOps** → `az boards work-item update --id <n> --discussion "<comment body>" --organization https://dev.azure.com/<org>`
+   - **GitHub** → `gh issue comment <n> --body "<comment body>"`
+   - Jira → the `jira` CLI.
 3. **Nothing available** → print the comment body and ask the user to paste it on `${TICKET_REF}` manually.
 
 Outcome handling:

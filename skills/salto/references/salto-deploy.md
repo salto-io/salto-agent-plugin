@@ -8,6 +8,8 @@ This is reference content. It is not registered as a slash command. The `/salto`
 
 Orchestrate NACL changes from edit to SaaS-validated PR. Handles both new and existing Salto deployments.
 
+All deterministic orchestration (pre-flight checks, env resolution, worktree/state-dir setup, plan classification) lives in `salto-cli` — invoke the commands and read their JSON. Do not re-implement any of it in shell; the remaining shell in this workflow is limited to `git`/`gh`/`az` one-liners that work identically on macOS, Linux and Windows.
+
 ## Two modes
 
 **Existing deployment** — pass `--deployment-id` or `--branch-name`. The skill edits locally, validates against the target env's state (auto-fetched), then runs `deployment preview` against that existing deployment.
@@ -18,24 +20,68 @@ In both modes, state is downloaded directly from the target environment — no "
 
 ## Guardrails
 
-- All edits happen inside a git worktree on a `salto/<task-slug>` branch. Never modify the user's working tree.
-- Never push until the local plan is clean (zero `changeErrors`). If `validate-local` fails for any reason, stop — do not push.
+- All edits happen inside a git worktree on a `salto/<task-slug>` branch (created by `salto-cli deployment prepare-worktree`). Never modify the user's working tree.
+- Never push until the local plan is clean (zero relevant `changeErrors`). If `validate-local` fails for any reason, stop — do not push.
 - Never force-push to any branch outside `salto/*`.
 - Stop immediately on auth or credential errors. Report clearly and do not attempt to debug credentials.
 - Bounded loops: max 5 local iterations, max 3 SaaS iterations. If either limit is hit, stop and summarise what remains unresolved.
 
 ## Supported scenario: PR base = env's tracked branch (Path A only)
 
-This skill **only** supports the case where the PR it opens will target the same branch the target env is tracking. In Salto's `createDeploymentFromPR` server-side resolver this is called "Path A" — `pullRequest.targetBranch === env.remoteBranch && pullRequest.repo === env.repository` — and it works for every adapter (Zendesk, Salesforce, NetSuite, Jira, etc.).
+This skill **only** supports the case where the PR it opens targets the same branch the target env is tracking ("Path A" in Salto's `createDeploymentFromPR` resolver — works for every adapter). When the PR's base differs from the env's tracked branch (Path B), the Salto backend only supports Salesforce and NetSuite; any other adapter fails with "Environment does not have a supported application connection".
 
-When the PR's base differs from the env's tracked branch (Path B — i.e. the diff would have to be cherry-picked onto the env), the Salto backend **only** supports Salesforce and NetSuite adapters. For any other adapter the deployment-creation step will fail with: `Environment '<env>' does not have a supported application connection. Supported application types are salesforce and netsuite.`
+`salto-cli deployment preflight` enforces this: it fails (with remediation options) when the current branch doesn't match the env's tracked branch. If the user actually wants to deploy to `main` while sitting on another branch, they should `git checkout main` first; if they want the env to track their branch, they should reconfigure the env in the Salto UI (Env settings → Git), then re-run `/salto`.
 
-**Concrete consequence for this skill:** the user's current branch (`ORIGINAL_BRANCH`, captured in Step 4) must be the same branch the target env tracks (`env.gitDetails.remoteBranchName`). The skill verifies this in Step 3d and bails out before any edit / worktree / PR work if they don't match. If you (a future maintainer) ever want to extend the skill to the Path B case, you'll need to either restrict it to Salesforce/NetSuite-only envs or surface the limitation differently — don't silently let the deploy step explode at Step 10.
+## CLI JSON contracts used by this workflow
 
-### Workarounds when the precondition fails
+`salto-cli deployment preflight --workspace <path> [-e <env-name> | -E <env-id>]` — every pre-deploy check in one call. Exit 0 when `ok: true`; non-zero otherwise (JSON is still printed).
 
-- If you actually want to deploy a change to `main` while sitting on `release/v0.42`: switch to the env's tracked branch first (`git checkout main`), then invoke `/salto`.
-- If you actually want the env to track `release/v0.42`: reconfigure the env in the Salto UI (Env settings → Git → change tracked branch), then invoke `/salto` again.
+```json
+{
+  "ok": true,
+  "failures": [], "warnings": [],
+  "workspace": { "path": "...", "uid": "...", "format": "cloud|legacy", "adapters": ["netsuite"], "envs": [{ "name": "ns1", "id": "<uuid>" }] },
+  "git": { "root": "...", "currentBranch": "main", "dirty": false, "remoteUrl": "...", "remote": { "provider": "github", "repo": "owner/repo" }, "remoteReachable": true },
+  "auth": { "tokenPresent": true, "ok": true },
+  "env": { "envId": "<uuid>", "envName": "ns1", "orgId": "<uuid>", "gitDetails": { "provider": "GITHUB", "repoName": "owner/repo", "remoteBranchName": "main" } },
+  "branchMatch": { "currentBranch": "main", "envTrackedBranch": "main", "match": true }
+}
+```
+
+For Azure DevOps remotes, `git.remote` is `{ "provider": "azure", "organization": "...", "project": "...", "repo": "..." }`.
+
+`salto-cli deployment prepare-worktree --workspace <path> --slug <task-slug> --pull` — dirty-tree check, ff-only pull, `salto/<slug>-<timestamp>` branch + worktree, temp state dir:
+
+```json
+{ "branch": "salto/<slug>-<ts>", "worktreePath": "...", "stateDir": "...", "gitRoot": "...", "baseBranch": "main", "baseCommit": "<sha>" }
+```
+
+`salto-cli deployment ship --workspace <worktree> --target-env-id <id> --title <t> --body-file <f> --base <branch> --allow-warnings` — the whole post-edit tail in one call: commit NACL changes, push, open (or reuse) the GitHub PR, create the Salto deployment from it, wait for the SaaS preview, print the plan summary. With `--allow-warnings` (always pass it — warnings are surfaced in `changeErrors.relevant` for you to report): exit 0 = preview clean or warnings only; exit 3 = Error-severity changeErrors remain (the PR and deployment still exist — continue with the fix loop). GitHub remotes only; on other hosts use the granular fallback.
+
+```json
+{
+  "branch": "salto/<slug>-<ts>",
+  "prUrl": "https://github.com/owner/repo/pull/7",
+  "deployment": { "id": "<uuid>", "name": "...", "status": "PREVIEW", "url": "https://app.salto.io/..." },
+  "summary": { "adds": 1, "modifies": 0, "removes": 0 },
+  "planElemIds": ["..."],
+  "changeErrors": { "relevant": [], "baseline": [] },
+  "planUrl": "https://app.salto.io/..."
+}
+```
+
+`salto-cli deployment validate-local ... -o summary` and `salto-cli deployment preview ... -o summary` — compact plan with relevance classification already done:
+
+```json
+{
+  "summary": { "adds": 1, "modifies": 0, "removes": 0 },
+  "planElemIds": ["netsuite.location.instance.SF_HQ@s"],
+  "changeErrors": { "relevant": [ { "elemID": "...", "severity": "Error|Warning|Info", "message": "..." } ], "baseline": [] },
+  "securityIssues": { "relevant": [ { "key": "...", "severity": "CRITICAL|HIGH|MEDIUM|LOW", "title": "...", "occurrenceElemIds": [] } ], "baseline": [] }
+}
+```
+
+`relevant` = on elements this plan touches; `baseline` = pre-existing workspace drift. `preview -o summary` additionally includes `planUrl` and has no `securityIssues`. Both commands accept `--plan-file <path>` to also write the full plan JSON (the `-o json` shape) to a file — use `<STATE_DIR>/plan.json`; the CLI guarantees it survives `--refresh-state`.
 
 ## Instructions
 
@@ -43,13 +89,7 @@ Follow these steps in order. Stop and report clearly if any step fails.
 
 ### Step 1: Resolve workspace
 
-If `--workspace <path>` is in `$ARGUMENTS`, use that path.
-
-Otherwise, check if the current working directory is a Salto workspace:
-
-```bash
-[ -f "$(pwd)/salto.config/workspace.nacl" ]
-```
+If `--workspace <path>` is in `$ARGUMENTS`, use that path. Otherwise check if the current working directory contains `salto.config/workspace.nacl`:
 
 - If yes → use CWD silently as the workspace. Print: `Using workspace: <cwd>`
 - If no → stop: "Current directory is not a Salto workspace. Re-run with `--workspace <path>`."
@@ -75,217 +115,63 @@ From `$ARGUMENTS`, extract:
 Then: exactly one match → store it as `TICKET_REF` and print `Ticket: <ref>`; multiple distinct matches → ask the user which one is the ticket for this change; none → leave `TICKET_REF` empty (Step 10b is skipped).
 
 **If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first — using the tool that matches where the ticket lives:
-- **Azure DevOps** work item → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; the `AZ_AVAILABLE` probe from Step 2b). Use `az` whenever the workspace remote is Azure DevOps — the same way Step 9 uses `az repos` for the PR.
+- **Azure DevOps** work item → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; the `AZ_AVAILABLE` probe from Step 3). Use `az` whenever the workspace remote is Azure DevOps — the same way Step 9 uses `az repos` for the PR.
 - **Otherwise** → a connected ticketing MCP (e.g. Jira).
 
 Read the ticket's title/description to derive the actual change, then continue the workflow. Don't infer the change from the ticket id alone.
 
 **Decisions log.** Initialize an empty `DECISIONS_LOG`. From here on, whenever the user makes a decision during this run — answers a clarifying question (target env, which ticket), approves pushing despite warnings, decides how to handle a security issue (Step 6e) or an iteration-limit stop (Steps 6d/11d), or changes scope — append a one-line `question → user's answer` entry. Step 10b posts these to the ticket.
 
-Derive a `task-slug` from the description: lowercase, spaces → hyphens, max 40 chars.
+Derive a `task-slug` from the description: a few lowercase words joined by hyphens (the CLI normalizes it further).
 
 **Mode**: If `--deployment-id` or `--branch-name` was provided → **existing-deployment mode**. Otherwise → **new-deployment mode**.
 
-### Step 3: Pre-flight checks
+### Step 3: Pre-flight — one CLI call
 
-Run all checks and collect every failure before reporting. Do not stop at the first one.
+```
+salto-cli deployment preflight --workspace "<WORKSPACE>"
+```
 
-1. **SALTO_API_TOKEN set**: `[ -n "$SALTO_API_TOKEN" ]` — if missing, add to failures: "SALTO_API_TOKEN is not set."
-2. **salto-cli available**: `which salto-cli` — if missing, add to failures: "salto-cli not found in PATH."
-   2b. **PR-tool availability** (informational, never a failure): probe the PR CLI for each supported git host so Step 9 can decide whether to open the PR automatically or fall back to a manual create URL.
-   - GitHub: `which gh >/dev/null && gh auth status >/dev/null 2>&1` → set `GH_AVAILABLE=true|false`.
-   - Azure DevOps: `which az >/dev/null && az repos -h >/dev/null 2>&1` → set `AZ_AVAILABLE=true|false` (the `az repos` commands come from the `azure-devops` CLI extension; auth is via `az login` or an `AZURE_DEVOPS_EXT_PAT` env var). Auth problems surface at create time and are handled there, like `gh`.
-3. **Is a Salto workspace**:
+If the workspace defines multiple environments, preflight fails asking for disambiguation — ask the user which env to target (offer the `workspace.envs` list from the output), then re-run with `-E <env-id>`.
 
-   - `salto.config/workspace.nacl` exists and contains a `uid` field → store as `WORKSPACE_UID`
-   - **Detect workspace format**:
-     - If `salto.config/envsSaltoCloud.nacl` exists and contains an `envsCloud = [...]` block → **cloud-mounted workspace**. Set `WORKSPACE_FORMAT=cloud`. Parse each `{ uuid = "...", folderName = "..." }` entry; use the `folderName` values as env names and the `uuid` values as env IDs. Store the first (or only) folderName as `ENV_NAME` and the first uuid as `ENV_UUID`. If multiple envs exist and the description doesn't disambiguate, ask the user which env to target (offer both name and uuid).
-     - Else if `salto.config/envs.nacl` exists and defines at least one environment (`envs { envs = ["<name>", ...] }`) → **legacy workspace**. Set `WORKSPACE_FORMAT=legacy`. Store the first (or only) env name as `ENV_NAME`. **You must resolve `ENV_NAME` → `ENV_UUID` via GraphQL now** so every subsequent step uses the UUID — env names are not unique across the user's accessible orgs and `--target-env <name>` will fail with "Found multiple environments with name <name>". See the resolution snippet below.
-   - List all adapter names as `ADAPTER_LIST` from `salto.config/adapters/`.
-   - `salto.config/adapters/` directory exists.
+Interpret the JSON:
 
-   Print: `Workspace: <uid> | Env: <env-name> | UUID: <env-uuid> | Format: <legacy|cloud> | Adapters: <adapter-list>`
+- `ok: false` → print every entry in `failures` and stop. (The failure messages include remediation — e.g. the branch-mismatch failure explains the Path A options.)
+- `warnings` non-empty → print them and continue.
+- `ok: true` → store for later steps:
+  - `ENV_UUID` = `env.envId`, `ENV_NAME` = `env.envName`, `ORG_ID` = `env.orgId`
+  - `ADAPTER_LIST` = `workspace.adapters`
+  - `ORIGINAL_BRANCH` = `git.currentBranch` (this is the PR's base branch)
+  - `GIT_PROVIDER` = `git.remote.provider`; for github also `GITHUB_REPO` = `git.remote.repo`; for azure also `ADO_ORG`/`ADO_PROJECT`/`ADO_REPO` from `git.remote`.
 
-   If any file is missing or malformed, add to failures: "Not a valid Salto workspace — missing `<file>`."
+  Print: `Workspace: <uid> | Env: <ENV_NAME> | UUID: <ENV_UUID> | Adapters: <ADAPTER_LIST> | Git: <provider> <repo> @ <ORIGINAL_BRANCH>`
 
-   **Env name → UUID resolution (legacy only)** — for legacy workspaces, immediately resolve `ENV_NAME` to `ENV_UUID` so we can use `--target-env-id` everywhere. The CLI's own resolver fails on duplicate names across orgs, so we go through GraphQL directly:
+From here on, **every CLI call that targets an env uses `--target-env-id "<ENV_UUID>"`** — never the env-name form (env names are not unique across orgs).
 
-   ```bash
-   if [ "${WORKSPACE_FORMAT}" = "legacy" ]; then
-     ORGS_JSON=$(curl -sf "${GRAPHQL_URL:-https://graphql.salto.io/graphql}" \
-       -H "Authorization: Bearer ${SALTO_API_TOKEN}" -H "Content-Type: application/json" \
-       -d '{"query":"{ me { orgMemberships { org { id environments { id name } } } } }"}')
-     # First match: org+env where the env's name equals ENV_NAME. If more than one match
-     # exists, surface it as a failure with the org IDs — the user needs to disambiguate.
-     ENV_UUID=$(echo "${ORGS_JSON}" | python3 -c "
-   import sys, json
-   d = json.load(sys.stdin)
-   matches = []
-   for m in d.get('data',{}).get('me',{}).get('orgMemberships',[]) or []:
-       o = m.get('org') or {}
-       for e in o.get('environments') or []:
-           if e.get('name') == '${ENV_NAME}':
-               matches.append((o.get('id'), e.get('id')))
-   if len(matches) == 0:
-       print('', file=sys.stderr); sys.exit(1)
-   if len(matches) > 1:
-       print('AMBIGUOUS:' + ','.join(f'{o}/{e}' for o,e in matches), file=sys.stderr); sys.exit(2)
-   print(matches[0][1])
-   ")
-     [ -z "${ENV_UUID}" ] && { echo "ERROR: could not resolve env '${ENV_NAME}' to a UUID. Check SALTO_API_TOKEN + that the env exists in one of your orgs." >&2; exit 1; }
-   fi
-   ```
-
-   From here on, **every CLI call that targets an env uses `--target-env-id "${ENV_UUID}"`** — never `--target-env <name>`. This applies to validate-local (Step 6b), fetch-state, deployment list filters, and from-pull-request (Step 10).
-
-4. **Git repository**: `git -C "${WORKSPACE}" rev-parse --show-toplevel` → store as `GIT_ROOT`. If fails, add to failures: "Workspace is not inside a git repository."
-
-5. **Git remote (GitHub or Azure DevOps)**:
-
-   - Run `git -C "${WORKSPACE}" remote get-url origin`
-   - If no `origin`, add to failures: "No git remote 'origin' — workspace must be connected to a supported git host (GitHub or Azure DevOps)."
-   - Detect the host from the URL and set `GIT_PROVIDER`:
-     - Contains `github.com` → `GIT_PROVIDER=github`; parse `owner/repo` → store as `GITHUB_REPO`. Print: `Git host: GitHub (<owner/repo>)`.
-     - Contains `dev.azure.com` or `*.visualstudio.com` → `GIT_PROVIDER=azure`; parse the **organization**, **project**, and **repo** (e.g. `https://dev.azure.com/<org>/<project>/_git/<repo>`, the `<org>@dev.azure.com/...` SSH-over-HTTPS form, or legacy `https://<org>.visualstudio.com/<project>/_git/<repo>`). Store `ADO_ORG`, `ADO_PROJECT`, `ADO_REPO`. Print: `Git host: Azure DevOps (<org>/<project>/<repo>)`.
-     - Otherwise → `GIT_PROVIDER=other`; add warning (non-fatal): "Remote host is neither GitHub nor Azure DevOps. PR creation will fall back to manual (Step 9, Path C)."
-
-6. **Remote reachable**: `git -C "${WORKSPACE}" ls-remote --exit-code origin HEAD` — if fails, add warning: "Cannot reach remote origin. Check git credentials."
-
-7. **SaaS auth** (only if `SALTO_API_TOKEN` is set): run `salto-cli deployment list` and check output:
-   - If "Authentication Failed" → add to failures: "SaaS authentication failed. Your token may be expired — generate a new SALTO_API_TOKEN in the Salto UI. If targeting staging, also set GRAPHQL_URL and SALTO_URL."
-
-If any hard failures were collected, print them all and stop. Print warnings but continue.
+**PR-tool availability probe** (informational, never a failure):
+- GitHub remote: `gh auth status` → `GH_AVAILABLE=true|false`.
+- Azure DevOps remote: `az repos -h` → `AZ_AVAILABLE=true|false`.
 
 ### Step 3b: Load adapter knowledge (conditional)
 
-From the adapter list extracted in step 3, for each adapter read its knowledge file if one is bundled with this skill. Each adapter has its own directory:
-
-- Read `{{SKILL_ROOT}}/adapters/<adapter>/<adapter>.md` into context (using your file-reading capability — these files are bundled with the skill, so resolve the path relative to the skill, not the current working directory).
-
-Do this for every adapter found. Missing adapter files are silently skipped — they are enrichment, not a requirement. When an adapter file is present, reading it before any NACL edits ensures the agent uses the correct element types, ID patterns, and avoids known pitfalls for that adapter.
+For each adapter in `ADAPTER_LIST`, read its knowledge file if one is bundled with this skill: `{{SKILL_ROOT}}/adapters/<adapter>/<adapter>.md`. Missing adapter files are silently skipped — they are enrichment, not a requirement.
 
 **Salesforce sub-adapters (CPQ / RLM-RCA):** for the `salesforce` adapter, also inspect the workspace data config (`fetch.data.includeObjects` in `salto.config/adapters/salesforce/salesforce.nacl`) and additionally read the matching sub-adapter file:
 
 - `includeObjects` contains `SBQQ__` or `sbaa__` → `{{SKILL_ROOT}}/adapters/salesforce/cpq.md`.
 - `includeObjects` contains RLM objects (`ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`, …) → `{{SKILL_ROOT}}/adapters/salesforce/rlm.md`. (RLM is Salesforce's Revenue Cloud Advanced / **RCA** — same product, renamed; our code still calls it RLM.)
 
-### Step 3c: Capture the current branch (deterministic)
+### Steps 4–5: Create the worktree and state dir — one CLI call
 
-Read it from git **before** any worktree work. This is the branch the PR will target. We need it both for Step 9 (it is the PR's base branch) and for the Step 3d precondition check below.
-
-```bash
-ORIGINAL_BRANCH=$(git -C "${GIT_ROOT}" symbolic-ref --short HEAD 2>/dev/null)
-if [ -z "${ORIGINAL_BRANCH}" ]; then
-  echo "ERROR: HEAD is detached. Check out a branch before running /salto." >&2
-  exit 1
-fi
-echo "Original branch: ${ORIGINAL_BRANCH}"
+```
+salto-cli deployment prepare-worktree --workspace "<WORKSPACE>" --slug "<task-slug>" --pull
 ```
 
-### Step 3d: Verify the env tracks the same branch (Path A precondition)
+`--pull` fast-forwards `ORIGINAL_BRANCH` from origin first, so the local plan runs against the freshest base (skipping it would surface other people's already-deployed changes as noise). The command fails with a clear message on a dirty working tree, detached HEAD, or a diverged branch — print the error and stop; those need the user's hands.
 
-This skill only supports the case where the PR base equals the env's tracked branch (see the "Supported scenario" preamble). Bail out **before** any worktree / edit / PR work if `ORIGINAL_BRANCH` doesn't match the env's tracked branch — otherwise we'd waste the user's time creating a PR that the deploy step would reject downstream.
+From the JSON, store: `BRANCH`, `WORKTREE_PATH`, `STATE_DIR`.
 
-Pull the env's git config in one call. `deployment env-info` resolves the owning org automatically and returns `gitDetails.remoteBranchName` (and repoName) — no separate ORG_ID lookup needed:
-
-```bash
-ENV_INFO=$(salto-cli deployment env-info --target-env-id "${ENV_UUID:-$ENV_ID}" 2>/dev/null)
-ENV_TRACKED_BRANCH=$(echo "${ENV_INFO}" | python3 -c "import sys,json; d=json.load(sys.stdin); g=d.get('gitDetails') or {}; print(g.get('remoteBranchName') or '')" 2>/dev/null)
-ENV_TRACKED_REPO=$(echo "${ENV_INFO}" | python3 -c "import sys,json; d=json.load(sys.stdin); g=d.get('gitDetails') or {}; print(g.get('repoName') or '')" 2>/dev/null)
-echo "Env tracks: ${ENV_TRACKED_REPO:-?} @ ${ENV_TRACKED_BRANCH:-?}"
-```
-
-Then assert the precondition:
-
-```bash
-if [ -n "${ENV_TRACKED_BRANCH}" ] && [ "${ENV_TRACKED_BRANCH}" != "${ORIGINAL_BRANCH}" ]; then
-  cat >&2 <<EOF
-ERROR: This skill only supports the case where your current branch matches the env's tracked branch (Path A).
-  Current branch:     ${ORIGINAL_BRANCH}
-  Env tracked branch: ${ENV_TRACKED_BRANCH}
-  Env:                ${ENV_NAME} (${ENV_UUID:-$ENV_ID})
-
-For non-Salesforce/NetSuite envs, the Salto backend rejects PRs whose base differs from the env's tracked branch. To proceed:
-  (a) Switch to '${ENV_TRACKED_BRANCH}' first: git checkout ${ENV_TRACKED_BRANCH}, then re-run /salto.
-  (b) Or reconfigure the env in the Salto UI to track '${ORIGINAL_BRANCH}', then re-run /salto.
-
-(See the "Supported scenario: PR base = env's tracked branch" section at the top of this skill for the full reasoning.)
-EOF
-  exit 1
-fi
-```
-
-If `ENV_TRACKED_BRANCH` came back empty (env not yet git-linked, or the field was null) — proceed with a warning, since the gating Path A/B logic on the server only kicks in when the env actually has a tracked branch.
-
-### Step 3e: Pull the latest of `ORIGINAL_BRANCH`
-
-Before creating the worktree, refresh `ORIGINAL_BRANCH` from `origin`. The whole skill validates against the latest state of the env (see Step 6b's `--refresh-state`), so running the local plan against an outdated local NACL would produce a diff dominated by other people's already-deployed changes — noise we'd then waste iterations "fixing". A fast-forward pull at the very start eliminates that whole class of failure.
-
-```bash
-# Refuse to pull if the working tree is dirty — the worktree we create next branches from
-# ORIGINAL_BRANCH's tip, so leftover uncommitted changes here don't follow us into the worktree,
-# but it's still a signal the user has work in flight that they should commit/stash first.
-if [ -n "$(git -C "${GIT_ROOT}" status --porcelain)" ]; then
-  cat >&2 <<EOF
-ERROR: Working tree on '${ORIGINAL_BRANCH}' has uncommitted changes. Commit or stash them
-first, then re-run /salto. (We don't want to pull into a dirty tree — it would either fail
-or silently merge unrelated work into your in-flight edits.)
-EOF
-  exit 1
-fi
-
-# Fast-forward only. If the local branch has diverged from origin (commits the user has not
-# pushed), --ff-only fails — surface that clearly rather than auto-merging.
-git -C "${GIT_ROOT}" fetch --quiet origin "${ORIGINAL_BRANCH}"
-if ! git -C "${GIT_ROOT}" pull --ff-only --quiet origin "${ORIGINAL_BRANCH}"; then
-  cat >&2 <<EOF
-ERROR: Could not fast-forward '${ORIGINAL_BRANCH}' to origin/${ORIGINAL_BRANCH}. The local
-branch has diverged. Resolve manually (rebase or push your local commits) and re-run /salto.
-EOF
-  exit 1
-fi
-echo "Pulled latest of ${ORIGINAL_BRANCH} from origin."
-```
-
-### Step 4: Create git worktree
-
-`ORIGINAL_BRANCH` was already captured in Step 3c, validated against the env's tracked branch in Step 3d, and fast-forwarded to `origin` in Step 3e. The worktree is created off `ORIGINAL_BRANCH`'s freshly-pulled HEAD; the new feature branch will be the `--head` of the eventual PR, with `--base = ORIGINAL_BRANCH`.
-
-```bash
-TIMESTAMP=$(date +%s)
-BRANCH="salto/${task-slug}-${TIMESTAMP}"
-
-git -C "${GIT_ROOT}" worktree add -b "${BRANCH}" "${GIT_ROOT}/../$(basename ${GIT_ROOT})-${BRANCH//\//-}"
-```
-
-Capture the actual worktree path from git (do not compute it manually):
-
-```bash
-WORKTREE_PATH=$(git -C "${GIT_ROOT}" worktree list --porcelain \
-  | grep -B1 "branch refs/heads/${BRANCH}" \
-  | grep "^worktree " \
-  | awk '{print $2}')
-echo "Worktree: ${WORKTREE_PATH}"
-```
-
-All subsequent NACL edits happen inside `WORKTREE_PATH`. `ORIGINAL_BRANCH` is used in Step 9 as `--base` when creating the PR.
-
-### Step 5: Prepare state temp dir
-
-Create a temp directory for state files that will persist for the duration of this skill run:
-
-```bash
-STATE_TMP=$(mktemp -d -t salto-state-XXXXXX)
-echo "State dir: ${STATE_TMP}"
-```
-
-This directory is:
-
-- Outside any git tree (mktemp always uses `/tmp` or equivalent)
-- Passed as `--state-dir` to every `validate-local` call
-- Deleted at the end of the skill run
-
-On the first `validate-local` call, if state files are absent from `STATE_TMP`, the CLI auto-fetches them directly from the target environment (via `--target-env-id`). On subsequent calls the files are already present and no fetch happens.
+All subsequent NACL edits happen inside `WORKTREE_PATH`. `ORIGINAL_BRANCH` is the `--base` of the eventual PR.
 
 ### Step 6: Local edit and validate loop (max: --max-local-iterations, default 5)
 
@@ -299,241 +185,104 @@ Repeat until the plan is clean or the limit is reached:
 
 **6b. Run validate-local**
 
-On the **first** iteration of this loop, pass `--refresh-state` so the CLI wipes `STATE_TMP` and re-fetches the latest state from the target env. This guarantees a deploy starts against the freshest state — even if `STATE_TMP` somehow has files from a prior run.
-
-Always use `--target-env-id "${ENV_UUID}"` — never the env-name form. The skill resolves the UUID upfront in Step 3 for both cloud and legacy workspaces, and every CLI call that targets an env should use it (env names are not unique across the user's accessible orgs).
-
-```bash
-salto-cli deployment validate-local \
-  --workspace "${WORKTREE_PATH}" \
-  --target-env-id "${ENV_UUID}" \
-  --state-dir "${STATE_TMP}" \
-  --refresh-state \
-  --output json \
-  --allow-warnings
+```
+salto-cli deployment validate-local --workspace "<WORKTREE_PATH>" --target-env-id "<ENV_UUID>" --state-dir "<STATE_DIR>" --refresh-state -o summary --plan-file "<STATE_DIR>/plan.json" --allow-warnings
 ```
 
-On **subsequent** iterations (after a failed validate that you're now fixing), **drop `--refresh-state`**. State doesn't change while you edit NACL locally; re-downloading every iteration wastes time. Keep `--target-env-id "${ENV_UUID}"` exactly as above.
+Pass `--refresh-state` **only on the first iteration** (guarantees fresh state); drop it on subsequent iterations — state doesn't change while you edit NACL locally, and re-downloading wastes time.
 
-State is fetched from the environment directly — no deployment seed is required. Works the same way in both new-deployment and existing-deployment mode.
+Read the summary from stdout:
 
-Parse the JSON output:
+- `changeErrors.relevant` empty → **plan is clean for your change.** Break the loop and proceed, even if `changeErrors.baseline` is non-empty — the skill is responsible only for the change it's making, not for pre-existing workspace drift.
+  - Log: `Plan clean: 0 errors on my elements (<planElemIds.length> planned). Ignoring <baseline count> pre-existing baseline errors.`
+  - Keep the summary values (`summary.adds/modifies/removes`, `planElemIds`, baseline counts) for the PR body in Step 9. The full plan JSON is in `<STATE_DIR>/plan.json` if you need detail.
+- `changeErrors.relevant` non-empty → note each error's `elemID`, `severity`, `message`; grep `WORKTREE_PATH` for the elemID; plan a targeted fix on the next iteration.
 
-- Collect `myElemIDs` = the set of `elemID` values from the plan's `planItems` (i.e. elements this run is adding/modifying/removing).
-- Collect `relevantErrors` = `changeErrors` whose `elemID` is in `myElemIDs`.
-- Collect `baselineErrors` = `changeErrors` whose `elemID` is NOT in `myElemIDs`.
+**6c. If validate-local fails to run at all** (CLI exits non-zero with no parseable JSON): **do not push, do not commit** — print the exact error and stop. Exit code 3 *with* valid JSON is not a hard failure; it means the plan contains changeErrors — apply the `relevant` filter above.
 
-Then decide:
+**6d. Max iterations without clean plan**: Stop. Summarise remaining errors (mark them 🔴 per the Step 12 dot convention) and what was tried. Ask the user how to proceed. Do not push.
 
-- `relevantErrors` is empty → **plan is clean for your change.** Break the loop and proceed to push, even if `baselineErrors` is non-empty. The skill is responsible only for the change it's making, not for fixing pre-existing workspace drift.
-  - Log: `Plan clean: 0 errors on my elements (${myElemIDs.length} planned). Ignoring ${baselineErrors.length} pre-existing baseline errors.`
-  - **Persist for later**: stash the full plan JSON as `LAST_PLAN_JSON` and the baseline error count as `BASELINE_ERRORS_IGNORED`. Step 9 (PR body) uses both to build a substantive description without re-running validate-local.
-- `relevantErrors` is non-empty → note each error's `elemID`, `severity`, `message`; grep `WORKTREE_PATH` for the elemID; plan a targeted fix on the next iteration.
+**6e. Security issues** — already classified by the CLI:
 
-**6c. If validate-local fails to run at all** (stale state, missing files, env resolution failure, CLI exits non-zero with no parseable JSON):
+- `securityIssues.relevant` with `CRITICAL` or `HIGH` severity → **block the push**, surface the issue list, ask the user how to proceed. Don't auto-fix.
+- `securityIssues.relevant` with `MEDIUM`/`LOW` → print a warning and continue (still push).
+- `securityIssues.baseline` (any severity) → log a one-line count (`Ignoring N pre-existing security issues unrelated to this change`) and continue. Never block on baseline.
 
-- **Do not push. Do not commit.**
-- Print the exact error and stop.
-- Exit code 3 with valid JSON output is _not_ a hard failure — it means the plan was produced but contains changeErrors. Apply the `relevantErrors` filter above to decide whether to continue.
+### Step 7: Build the PR body
 
-**6d. Max iterations without clean plan**: Stop. Summarise remaining errors (mark them 🔴 per the Step 12 change-validator dot convention) and what was tried. Ask the user how to proceed. Do not push.
+The PR body should answer "what is this change and is it safe to deploy?". Get the changed files (stage first so brand-new files show up):
 
-**6e. Security issues** (`securityIssues` field in the JSON output): a list of security rule violations detected on the workspace elements (e.g. weak password policy, missing MFA, broad permissions). Each entry has `accountName`, `key`, `severity` (`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`), `title`, and `occurrences[]` listing the offending elements.
-
-- Filter to issues whose any `occurrences[].elemId` is in `myElemIDs` → `relevantSecurityIssues`. These are issues _introduced or aggravated by this change_.
-- Filter to issues whose all `occurrences[].elemId` are outside `myElemIDs` → `baselineSecurityIssues`. Pre-existing.
-- Treatment:
-  - `CRITICAL` or `HIGH` severity in `relevantSecurityIssues` → **block the push**, surface the issue list, ask the user how to proceed. Don't auto-fix.
-  - `MEDIUM`/`LOW` in `relevantSecurityIssues` → print a warning and continue (still push).
-  - `baselineSecurityIssues` (any severity) → log a one-line summary count (`Ignoring N pre-existing security issues unrelated to this change`) and continue. Never block on baseline.
-
-### Step 7: Commit (no push yet in new-deployment mode)
-
-Stage and commit only the user-facing NACL edits. The skill no longer touches `salto.config/envs.nacl` for cloud workspaces — the CLI's `validate-local` synthesises the legacy-format envs.nacl into its shadow workspace and reads the authoritative `accountToServiceName` mapping from the env-info sidecar that `fetch-state` writes to the state dir. So there's nothing to restore before commit.
-
-```bash
-git -C "${WORKTREE_PATH}" add -- '*.nacl'
-git -C "${WORKTREE_PATH}" commit -m "${description}"
+```
+git -C "<WORKTREE_PATH>" add -- '*.nacl'
+git -C "<WORKTREE_PATH>" diff --cached --name-status <ORIGINAL_BRANCH> -- '*.nacl'
 ```
 
-**Existing-deployment mode**: continue to Step 8 (push).
-**New-deployment mode**: print: "Local plan is clean. Branch committed but not yet pushed."
+Then **write the body to a file** (use your file-writing capability, not a shell heredoc — heredocs are not portable) at `<STATE_DIR>/pr-body.md`, using the Step 6 summary values:
 
-### Step 8: Push branch
-
-```bash
-git -C "${WORKTREE_PATH}" push -u origin "${BRANCH}"
-```
-
-### Step 9: Open the PR
-
-Pick a path based on the detected `GIT_PROVIDER` and PR-tool availability (from the pre-flight checks).
-
-First, build a substantive PR body — **shared by all hosts**. Boilerplate like "Created by /salto-deploy" is wasted screen space — the body should answer "what is this change and is it safe to deploy?". Pull the data we already have from Step 6 (the clean validate-local plan) plus a file list from git:
-
-```bash
-# Files touched by the new commit relative to ORIGINAL_BRANCH. Limit to NACL so we don't show
-# generated noise (e.g. accidentally-committed state files would scream loud here).
-PR_FILES=$(git -C "${WORKTREE_PATH}" diff --name-status "${ORIGINAL_BRANCH}".."${BRANCH}" -- '*.nacl' | head -40)
-
-# Plan summary: count planItems by action from the last clean validate-local output (which the
-# loop in Step 6 already produced). If you didn't keep that JSON around, re-run validate-local
-# once more here to get fresh numbers — it's a no-op against the cached state.
-PLAN_ADDS=$(echo "${LAST_PLAN_JSON}" | python3 -c "import sys,json; p=json.load(sys.stdin).get('planItems',[]); print(sum(1 for i in p for c in i.get('detailedChanges',[]) if c.get('action')=='add'))")
-PLAN_MODS=$(echo "${LAST_PLAN_JSON}" | python3 -c "import sys,json; p=json.load(sys.stdin).get('planItems',[]); print(sum(1 for i in p for c in i.get('detailedChanges',[]) if c.get('action')=='modify'))")
-PLAN_REMS=$(echo "${LAST_PLAN_JSON}" | python3 -c "import sys,json; p=json.load(sys.stdin).get('planItems',[]); print(sum(1 for i in p for c in i.get('detailedChanges',[]) if c.get('action')=='remove'))")
-BASELINE_NOTE=""
-if [ "${BASELINE_ERRORS_IGNORED:-0}" -gt 0 ]; then
-  BASELINE_NOTE="
-
-> Note: ${BASELINE_ERRORS_IGNORED} pre-existing baseline changeErrors on unrelated elements were ignored. They are not introduced by this PR."
-fi
-
-PR_BODY=$(cat <<EOF
+```markdown
 ## What
 
-${description}
+<description>
 
 ## Plan summary
 
-- Adds: ${PLAN_ADDS}
-- Modifies: ${PLAN_MODS}
-- Removes: ${PLAN_REMS}
+- Adds: <summary.adds>
+- Modifies: <summary.modifies>
+- Removes: <summary.removes>
 
-Local \`validate-local\` plan is clean — zero changeErrors on the elements touched by this PR.
+Local `validate-local` plan is clean — zero changeErrors on the elements touched by this PR.
 
 ## Files changed
 
-\`\`\`
-${PR_FILES}
-\`\`\`
+<the git diff --name-status output, in a code fence>
 
 ## Deployment
 
-Salto will create a deployment from this PR (target env: \`${ENV_NAME}\`, ${ENV_UUID:-$ENV_ID}). Review the preview in the Salto UI before applying.${BASELINE_NOTE}
-EOF
-)
-
+Salto will create a deployment from this PR (target env: `<ENV_NAME>`, <ENV_UUID>). Review the preview in the Salto UI before applying.
 ```
 
-**Path A — the host's PR CLI is available** (create the PR programmatically; no browser, no UI step):
+If baseline errors were ignored in Step 6, append: `> Note: N pre-existing baseline changeErrors on unrelated elements were ignored. They are not introduced by this PR.`
 
-*GitHub* (`GIT_PROVIDER=github` AND `GH_AVAILABLE=true`):
+### Step 8: Ship — one CLI call (GitHub + gh available)
 
-```bash
-PR_URL=$(gh pr create \
-  --repo "${GITHUB_REPO}" \
-  --head "${BRANCH}" \
-  --base "${ORIGINAL_BRANCH}" \
-  --title "${description}" \
-  --body "${PR_BODY}" 2>&1)
+**Existing-deployment mode**: skip ship. Commit and push with plain git (`git -C "<WORKTREE_PATH>" add -- '*.nacl'` / `commit` / `push -u origin <BRANCH>`), then go straight to the Step 11 preview loop with the known deployment id.
+
+**New-deployment mode**, when `GIT_PROVIDER=github` AND `GH_AVAILABLE=true`:
+
+```
+salto-cli deployment ship --workspace "<WORKTREE_PATH>" --target-env-id "<ENV_UUID>" --title "<description>" --body-file "<STATE_DIR>/pr-body.md" --base "<ORIGINAL_BRANCH>" --plan-file "<STATE_DIR>/preview-plan.json" --allow-warnings
 ```
 
-If `gh pr create` exits non-zero:
+This one command commits, pushes, opens the PR, creates the Salto deployment, waits for the SaaS preview, and prints the preview plan summary. From the JSON store: `BRANCH`, `PR_URL`, `DEPLOYMENT_ID` (= `deployment.id`), the deployment UI url, `planUrl`, and the plan classification.
 
-- output contains "already exists for" → recover the open PR: `PR_URL=$(gh pr view "${BRANCH}" --repo "${GITHUB_REPO}" --json url -q .url)`
-- otherwise stop and print the `gh` error verbatim. Do not retry blindly.
+- Exit 0 and `changeErrors.relevant` empty (or warnings only) → the SaaS preview is clean; go to Step 10b / Step 12.
+- Exit 3 → Error-severity relevant changeErrors remain. The PR and deployment exist; go to the Step 11 fix loop.
+- Any other failure (gh auth, push rejection, deployment-creation error) → print the error verbatim and stop; do not retry blindly. If deployment creation is the failing part, the preconditions note from the fallback path below applies (env must have `deploymentBranchingType=ENV_BASE_BRANCH`, a connected repo, and `pushSettings=AUTOMATIC`).
 
-*Azure DevOps* (`GIT_PROVIDER=azure` AND `AZ_AVAILABLE=true`) — needs the `azure-devops` extension; `--description` takes the multi-line `PR_BODY` as a single value:
+### Step 9: Fallback — non-GitHub host or gh unavailable
 
-```bash
-PR_JSON=$(az repos pr create \
-  --organization "https://dev.azure.com/${ADO_ORG}" \
-  --project "${ADO_PROJECT}" \
-  --repository "${ADO_REPO}" \
-  --source-branch "${BRANCH}" \
-  --target-branch "${ORIGINAL_BRANCH}" \
-  --title "${description}" \
-  --description "${PR_BODY}" \
-  --output json 2>&1)
-PR_URL=$(echo "$PR_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"https://dev.azure.com/${ADO_ORG}/${ADO_PROJECT}/_git/${ADO_REPO}/pullrequest/{d['pullRequestId']}\")" 2>/dev/null)
+Commit and push with plain git:
+
+```
+git -C "<WORKTREE_PATH>" add -- '*.nacl'
+git -C "<WORKTREE_PATH>" commit -m "<description>"
+git -C "<WORKTREE_PATH>" push -u origin "<BRANCH>"
 ```
 
-If `az repos pr create` errors that an active PR already exists for the source branch, recover it:
+Then open the PR:
 
-```bash
-PR_URL=$(az repos pr list \
-  --organization "https://dev.azure.com/${ADO_ORG}" --project "${ADO_PROJECT}" \
-  --repository "${ADO_REPO}" --source-branch "${BRANCH}" --status active --output json \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"https://dev.azure.com/${ADO_ORG}/${ADO_PROJECT}/_git/${ADO_REPO}/pullrequest/{d[0]['pullRequestId']}\" if d else '')")
+- **Azure DevOps with az available**: `az repos pr create --organization https://dev.azure.com/<ADO_ORG> --project <ADO_PROJECT> --repository <ADO_REPO> --source-branch <BRANCH> --target-branch <ORIGINAL_BRANCH> --title "<description>" --description "<PR body text>" --output json`; build `PR_URL` as `https://dev.azure.com/<ADO_ORG>/<ADO_PROJECT>/_git/<ADO_REPO>/pullrequest/<pullRequestId>`. If an active PR already exists for the branch, recover it via `az repos pr list --source-branch <BRANCH> --status active`.
+- **Host known, PR CLI unavailable**: print the compare URL (`https://github.com/<GITHUB_REPO>/compare/<ORIGINAL_BRANCH>...<BRANCH>?expand=1` or the ADO `pullrequestcreate` URL) and ask the user to open the PR and paste its URL.
+- **Other hosts** (`GIT_PROVIDER=other`): tell the user to open a PR manually, then either create a deployment in the Salto UI and re-run with `--deployment-id`, or re-run with `--branch-name <BRANCH>`. Stop here.
+
+With `PR_URL` in hand, create the deployment and run the preview:
+
+```
+salto-cli deployment create from-pull-request --pr-url "<PR_URL>" --target-env-id "<ENV_UUID>"
+salto-cli deployment preview --deployment-id "<DEPLOYMENT_ID>" -o summary --plan-file "<STATE_DIR>/preview-plan.json" --allow-warnings
 ```
 
-Otherwise stop and print the `az` error verbatim. Do not retry blindly.
-
-Print: `PR created: ${PR_URL}`
-
-**Path B — host known but its PR CLI is unavailable** (print a create URL, then wait for the user to paste the resulting PR URL):
-
-```bash
-# GitHub  (GIT_PROVIDER=github, GH_AVAILABLE=false)
-CREATE_URL="https://github.com/${GITHUB_REPO}/compare/${ORIGINAL_BRANCH}...${BRANCH}?expand=1"
-# Azure DevOps  (GIT_PROVIDER=azure, AZ_AVAILABLE=false)
-CREATE_URL="https://dev.azure.com/${ADO_ORG}/${ADO_PROJECT}/_git/${ADO_REPO}/pullrequestcreate?sourceRef=${BRANCH}&targetRef=${ORIGINAL_BRANCH}"
-```
-
-Print:
-
-> "Branch pushed. I can't open the PR automatically (the host's CLI — `gh` / `az` — isn't installed or authenticated). Open this URL to create the PR:
-> **`${CREATE_URL}`**
->
-> Once you've opened the PR, paste the PR URL here."
-
-Wait for the user to paste the PR URL → store as `PR_URL`.
-
-**Path C — host is neither GitHub nor Azure DevOps** (`GIT_PROVIDER=other`): no automatic deployment creation is possible. Tell the user:
-
-> "Branch pushed to an unsupported git host. Open a PR there, then either:
->
-> 1. Create a deployment manually in the Salto UI and re-run with `--deployment-id <id>`, or
-> 2. Re-run with `--branch-name ${BRANCH}` if your stack auto-creates deployments via some other mechanism."
-
-Then stop the skill — Step 10 onwards requires a Salto deployment that won't exist.
-
-### Step 10: Create the Salto deployment from the PR
-
-**Existing-deployment mode**: deployment ID is already known from `--deployment-id` / `--branch-name`. Skip this step.
-
-**New-deployment mode (Path A or B from Step 9 — we have a `PR_URL`)**: create the deployment directly via the CLI. This is synchronous and does not depend on the host's webhook being wired.
-
-Always use `--target-env-id "${ENV_UUID}"` — same as Step 6b. `ENV_UUID` was resolved in Step 3 (immediately from `envsSaltoCloud.nacl` for cloud workspaces, via the GraphQL `me { orgMemberships { org { environments } } }` lookup for legacy ones). The env-name form is never safe across multiple accessible orgs.
-
-```bash
-DEPLOYMENT_JSON=$(salto-cli deployment create from-pull-request \
-  --pr-url "${PR_URL}" \
-  --target-env-id "${ENV_UUID}" 2>&1)
-DEPLOYMENT_ID=$(echo "$DEPLOYMENT_JSON" | python3 -c \
-  "import sys, json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-```
-
-`from-pull-request` outputs JSON by default — it does not accept `--output`. Don't add that flag.
-
-If `DEPLOYMENT_ID` is set: print `Deployment ${DEPLOYMENT_ID} created from PR.` and continue.
-
-If `from-pull-request` fails (non-zero exit, no JSON, or empty `id`), fall back to polling for a webhook-created deployment (Salto's webhook for the git host may create it independently):
-
-```bash
-for i in $(seq 1 18); do
-  RESULT=$(salto-cli deployment list --branch-name "${BRANCH}" 2>/dev/null)
-  DEPLOYMENT_ID=$(echo "$RESULT" | python3 -c \
-    "import sys, json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
-  [ -n "$DEPLOYMENT_ID" ] && break
-  sleep 5
-done
-```
-
-If still empty after polling, stop:
-
-> "Could not create or find a deployment for branch `${BRANCH}`. Last error from `from-pull-request`:
->
-> ```
-> ${DEPLOYMENT_JSON}
-> ```
->
-> Options:
->
-> 1. Verify the target env has `deploymentBranchingType=ENV_BASE_BRANCH`, is connected to a git repo, and `pushSettings=AUTOMATIC` — these are the preconditions for `createDeploymentFromPR`.
-> 2. Open the Salto UI → create a deployment manually → re-run with `--deployment-id <id>`.
-> 3. Re-run with `--branch-name ${BRANCH}` after waiting for the webhook to fire."
+(`from-pull-request` outputs JSON by default and does not accept `--output`; take `DEPLOYMENT_ID` from its `id`. If it fails, poll `salto-cli deployment list --branch-name "<BRANCH>"` every ~5s up to 18 attempts for a webhook-created deployment; if still nothing, surface the preconditions: `deploymentBranchingType=ENV_BASE_BRANCH`, connected repo, `pushSettings=AUTOMATIC`.)
 
 ### Step 10b: Comment on the involved ticket (conditional, never blocking)
 
@@ -544,134 +293,102 @@ Build the comment body from data already in hand:
 ```
 Salto deployment opened from Claude Code
 
-* Change: ${description}
-* PR: ${PR_URL}
-* Salto deployment: ${DEPLOYMENT_ID} (target env: ${ENV_NAME})
-* Plan: +${PLAN_ADDS} / ~${PLAN_MODS} / -${PLAN_REMS} — local validate-local clean on touched elements
+* Change: <description>
+* PR: <PR_URL>
+* Salto deployment: <DEPLOYMENT_ID> (target env: <ENV_NAME>)
+* Plan: +<adds> / ~<modifies> / -<removes> — local validate-local clean on touched elements
 
 Decisions made during this run:
-${DECISIONS_LOG entries, one bullet each — verbatim question → answer}
+<DECISIONS_LOG entries, one bullet each — verbatim question → answer>
 ```
 
 If `DECISIONS_LOG` is empty, write `No user decisions were required — change applied as requested.` instead of an empty section.
 
-Post it using whatever ticketing capability is available — this step is **ticketing-system-agnostic**; use whichever system the user's workspace is connected to. Try in this order:
+Post it using whatever ticketing capability is available — this step is **ticketing-system-agnostic**. Try in this order:
 
-1. **A ticketing MCP server** — discover via tool search and use its "add comment / add work-item comment" capability. This covers any connected system, for example:
-   - Atlassian / Jira (e.g. `addCommentToJiraIssue`; resolve the cloud id first if the tool requires it, e.g. `getAccessibleAtlassianResources`),
-   - Azure DevOps / ADO (a work-item comment tool; resolve organization/project if required),
-   - or any other connected ticketing MCP.
-   Match the tool to the `TICKET_REF` format detected in Step 2, and supply whatever identifiers that tool needs (issue key, work-item id, org/project, repo, etc.).
-2. **A ticketing CLI** if installed and authenticated:
-   - **Azure DevOps** → `az boards work-item update --id <n> --discussion "<comment body>" --organization https://dev.azure.com/<org>` (use `az` whenever the remote is Azure DevOps, same as Step 9's PR tooling)
-   - Jira → the `jira` CLI.
-3. **Nothing available** → print the comment body and ask the user to paste it on `${TICKET_REF}` manually.
+1. **A ticketing MCP server** — discover via tool search and use its "add comment / add work-item comment" capability (Jira, Azure DevOps, or any other connected system). Match the tool to the `TICKET_REF` format detected in Step 2.
+2. **A ticketing CLI** if installed and authenticated: Azure DevOps → `az boards work-item update --id <n> --discussion "<comment body>"`; Jira → the `jira` CLI.
+3. **Nothing available** → print the comment body and ask the user to paste it on `<TICKET_REF>` manually.
 
-Outcome handling:
+Outcome handling: success → print `Ticket: commented on <TICKET_REF>`; failure → **do not fail or retry-loop the run** — print a one-line warning, dump the comment body for manual posting, and continue.
 
-- Success → print `Ticket: commented on ${TICKET_REF}`.
-- Failure (auth, permissions, bad ref, tool error) → **do not fail or retry-loop the run.** Print a one-line warning, dump the comment body so the user can post it manually, and continue to Step 11. A ticketing hiccup must never block the deployment pipeline.
+### Step 11: SaaS fix loop (only when relevant Error-severity changeErrors remain; max: --max-saas-iterations, default 3)
 
-### Step 11: SaaS preview loop (max: --max-saas-iterations, default 3)
+Each iteration: fix the NACLs in `WORKTREE_PATH` based on `changeErrors.relevant`, then push and re-preview (`deployment preview` pulls the new commits into the deployment and recomputes the plan — do NOT re-run `ship` here):
 
-Repeat until preview is clean or limit reached:
-
-**11a. Run preview**
-
-```bash
-salto-cli deployment preview \
-  --deployment-id "${DEPLOYMENT_ID}" \
-  --output json \
-  --allow-warnings
+```
+git -C "<WORKTREE_PATH>" add -- '*.nacl'
+git -C "<WORKTREE_PATH>" commit -m "fix: <error summary>"
+git -C "<WORKTREE_PATH>" push origin <BRANCH>
+salto-cli deployment preview --deployment-id "<DEPLOYMENT_ID>" -o summary --plan-file "<STATE_DIR>/preview-plan.json" --allow-warnings
 ```
 
-**11b. Clean** → proceed to Step 12.
-
-**11c. Errors found** → fix NACLs, commit, push:
-
-```bash
-git -C "${WORKTREE_PATH}" add -- '*.nacl'
-git -C "${WORKTREE_PATH}" commit -m "fix: <error summary>"
-git -C "${WORKTREE_PATH}" push origin "${BRANCH}"
-```
-
-**11d. Max iterations reached**: Stop. Summarise remaining errors (mark them 🔴 per the Step 12 change-validator dot convention). Leave PR open for manual inspection.
+`changeErrors.relevant` empty → proceed to Step 12. Max iterations reached → stop, summarise remaining errors (mark them 🔴 per the Step 12 dot convention), and leave the PR open for manual inspection.
 
 ### Step 12: Finish
 
 Print the headline:
 
 > "SaaS preview is clean. PR is ready for review:
-> **`${PR_URL}`**"
+> **`<PR_URL>`**"
 
 Then print a **Pipeline results** summary containing ONLY:
 
-- **PR**: `${PR_URL}`
-- **Deployment**: `${DEPLOYMENT_ID}` (+ Salto UI link)
-- **Ticket**: `commented on ${TICKET_REF}` / `comment failed — body printed for manual posting` / omit the line entirely when no ticket was involved
-- **Branch**: `${BRANCH}` (base: `${ORIGINAL_BRANCH}`)
+- **PR**: `<PR_URL>`
+- **Deployment**: `<DEPLOYMENT_ID>` (+ Salto UI link)
+- **Ticket**: `commented on <TICKET_REF>` / `comment failed — body printed for manual posting` / omit the line entirely when no ticket was involved
+- **Branch**: `<BRANCH>` (base: `<ORIGINAL_BRANCH>`)
 - **Changes made**: one line (or a short table) per element added / modified / removed
-- **Change-validator status** — print one dot for the final **local** `validate-local` result and one for the final **SaaS** `preview` result, judged on the elements this PR touched (`relevantErrors`), per the convention below.
+- **Change-validator status** — one dot for the final **local** `validate-local` result and one for the final **SaaS** `preview` result, judged on `changeErrors.relevant`, per the convention below.
 - If baseline (pre-existing, unrelated) issues were ignored, keep the existing one-line count (`Ignored N pre-existing … issues unrelated to this change`).
 
 **Do NOT print local-iteration or SaaS-iteration counts.**
 
 #### Change-validator status dot convention
 
-Judge severity from each `changeErrors[].severity` in the `validate-local` / `preview` JSON you already parsed (`Error` / `Warning` / `Info`; treat `Info` as clean):
+Judge severity from `changeErrors.relevant[].severity` in the summary output (treat `Info` as clean):
 
-- 🟢 **Clean** — no `changeErrors` on touched elements.
-- 🟡 **Warnings** — no `Error`-severity entries, but one or more `Warning`-severity `changeErrors` on touched elements (these passed only because of `--allow-warnings`). List each as `elemID — message`.
-- 🔴 **Errors** — one or more `Error`-severity `changeErrors` remain on touched elements. List each as `elemID — message`.
+- 🟢 **Clean** — no relevant changeErrors.
+- 🟡 **Warnings** — no `Error`-severity entries, but one or more `Warning`-severity relevant changeErrors (these passed only because of `--allow-warnings`). List each as `elemID — message`.
+- 🔴 **Errors** — one or more `Error`-severity relevant changeErrors remain. List each as `elemID — message`.
 
-A normal clean finish shows 🟢 local / 🟢 SaaS. A finish reached through the warning-tolerant path shows 🟡 on the side that still has warnings. 🔴 only appears via the max-iterations stop paths (Steps 6d / 11d).
+A normal clean finish shows 🟢 local / 🟢 SaaS. 🔴 only appears via the max-iterations stop paths (Steps 6d / 11).
 
 #### Post-deploy `git pull` — explicit, never automatic
 
-After the deployment is applied (via the Salto UI / your CI / whoever promotes it), the env's tracked branch on `origin` will have the deployed changes plus any normalisation deltas from the post-deployment fetch. The local working copy of `${ORIGINAL_BRANCH}` is now stale.
-
-**Do not auto-pull here.** Even when the skill is running in non-interactive auto-mode, stop and surface a choice to the user. The user owns the moment "I'm ready to promote the deployed changes into my local workspace" — the skill must not assume it on their behalf.
-
-Print this message and stop. Do not run `git pull` yourself in this step.
+After the deployment is applied (via the Salto UI / CI / whoever promotes it), the env's tracked branch on `origin` has the deployed changes plus any normalisation deltas from the post-deployment fetch. **Do not auto-pull.** Even in non-interactive auto-mode, print this message and stop — the user owns the moment "I'm ready to promote the deployed changes into my local workspace":
 
 > "Once the deployment is applied in the Salto UI:
 >
-> 1. Run `git -C ${GIT_ROOT} pull --ff-only origin ${ORIGINAL_BRANCH}` to sync the merged change into your local workspace.
-> 2. Salto runs a post-deployment fetch shortly after — this can add normalisation changes (e.g. NetSuite back-propagates a new `transactionBodyCustomField` into every `transactionForm`; Zendesk strips empty `any = []` arrays from new triggers). When the post-deployment fetch completes in the Salto UI, run the same `git pull` command **a second time** to pick those up.
+> 1. Run `git -C <gitRoot> pull --ff-only origin <ORIGINAL_BRANCH>` to sync the merged change into your local workspace.
+> 2. Salto runs a post-deployment fetch shortly after — this can add normalisation changes (e.g. NetSuite back-propagates a new `transactionBodyCustomField` into every `transactionForm`; Zendesk strips empty `any = []` arrays from new triggers). When it completes in the Salto UI, run the same `git pull` a second time to pick those up.
 >
 > Skipping either pull will leave your local workspace divergent from the env and the next `/salto` run will surface that drift as noisy unrelated diffs."
 
-Cleanup:
-
-```bash
-rm -rf "${STATE_TMP}"
-```
-
-Remind the user: worktree at `WORKTREE_PATH` is left for inspection. To remove: `git worktree remove "${WORKTREE_PATH}"`.
+Cleanup: delete `STATE_DIR` (use your file tools or `rm -rf` / `Remove-Item -Recurse` as fits the platform). Remind the user: worktree at `WORKTREE_PATH` is left for inspection; remove with `git worktree remove "<WORKTREE_PATH>"`.
 
 ## Usage examples
 
 ```
 # From the workspace directory — no --workspace needed:
 cd ~/path/to/your/salto-workspace
-/salto-deploy "add Zendesk trigger ai_review_test that tags new tickets"
+/salto "add Zendesk trigger ai_review_test that tags new tickets"
 
 # Explicit workspace path:
-/salto-deploy "rename Okta group admins to platform-admins" --workspace ~/salto-workspaces/prod
+/salto "rename Okta group admins to platform-admins" --workspace ~/salto-workspaces/prod
 
 # Existing deployment (state fetched from it; preview runs against it):
-/salto-deploy "fix salesforce field label" --deployment-id abc123
+/salto "fix salesforce field label" --deployment-id abc123
 
 # Ticket-linked change — ticket auto-detected from the description (or pass --ticket):
-/salto-deploy "SALTO-1234 add validation rule on Account.Website"
-/salto-deploy "add validation rule on Account.Website" --ticket SALTO-1234
-/salto-deploy "add validation rule on Account.Website" --ticket AB#4567   # Azure DevOps work item
+/salto "SALTO-1234 add validation rule on Account.Website"
+/salto "add validation rule on Account.Website" --ticket SALTO-1234
+/salto "add validation rule on Account.Website" --ticket AB#4567   # Azure DevOps work item
 ```
 
 ## Notes
 
-- `validate-local` runs without adapter credentials. When state is missing, it auto-fetches from the provided `--deployment-id`.
-- SaaS preview and state fetching both require `SALTO_API_TOKEN`.
-- For staging environments, also export `GRAPHQL_URL` and `SALTO_URL` before running.
+- `validate-local` runs without adapter credentials. Local change validators may fall back to a structural-only plan (the CLI prints a warning with the cause) — the authoritative semantic validation is the SaaS preview in Step 11.
+- SaaS preview, preflight and state fetching require `SALTO_API_TOKEN`. For staging environments, also export `GRAPHQL_URL` and `SALTO_URL`.
 - New-deployment mode creates the Salto deployment from the PR via `from-pull-request` (with the git host's webhook as a fallback), on **GitHub or Azure DevOps**. On any other git host, create the deployment manually in the UI and re-run with `--deployment-id`.
 - On auth errors (403, "Authentication Failed"), stop immediately — do not attempt to debug credentials.

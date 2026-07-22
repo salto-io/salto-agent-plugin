@@ -95,6 +95,44 @@ build_copilot() {
   emit_skill "$skilldir/SKILL.md" "$skilldir" "$base"
 }
 
+# --- GitHub Copilot CLI plugin ----------------------------------------------
+# Installable via `copilot plugin install`. plugin.json sits at the plugin
+# root (Copilot's convention, unlike Claude's .claude-plugin/); the skill is
+# the same fully self-contained layout as dist/copilot.
+# Also emits the repo-root .github/plugin/marketplace.json Copilot reads on
+# `copilot plugin marketplace add <this repo>`, so its version stays in sync.
+build_copilot_plugin() {
+  local base='.' out="$DIST/copilot-plugin" skilldir
+  rm -rf "$out"
+  mkdir -p "$out"
+  skilldir="$out/skills/salto"
+
+  jq '{
+    name: .plugin.name,
+    version: .version,
+    description: .plugin.description,
+    author: .plugin.author,
+    homepage: .plugin.homepage,
+    repository: .plugin.repository,
+    license: .plugin.license,
+    keywords: .plugin.keywords
+  }' "$META" >"$out/plugin.json"
+
+  emit_skill "$skilldir/SKILL.md" "$skilldir" "$base"
+
+  mkdir -p "$ROOT/.github/plugin"
+  jq '{
+    name: .marketplace.name,
+    owner: .marketplace.owner,
+    plugins: [{
+      name: .plugin.name,
+      description: .marketplace.description,
+      version: .version,
+      source: "./dist/copilot-plugin"
+    }]
+  }' "$META" >"$ROOT/.github/plugin/marketplace.json"
+}
+
 # --- validation -------------------------------------------------------------
 validate() {
   local problems=0 f
@@ -117,7 +155,14 @@ validate() {
     "copilot/.github/skills/salto/references/salto-deploy.md"
     "copilot/.github/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "copilot/.github/skills/salto/adapters/zendesk/zendesk.md"
+    "copilot-plugin/plugin.json"
+    "copilot-plugin/skills/salto/SKILL.md"
+    "copilot-plugin/skills/salto/VERSION"
+    "copilot-plugin/skills/salto/references/salto-deploy.md"
+    "copilot-plugin/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
+    "copilot-plugin/skills/salto/adapters/zendesk/zendesk.md"
   )
+  [ -f "$ROOT/.github/plugin/marketplace.json" ] || { echo "FAIL: missing .github/plugin/marketplace.json" >&2; problems=1; }
   for f in "${required[@]}"; do
     [ -f "$DIST/$f" ] || { echo "FAIL: missing required file $f" >&2; problems=1; }
   done
@@ -127,9 +172,11 @@ validate() {
 # --- run --------------------------------------------------------------------
 build_claude
 build_copilot
+build_copilot_plugin
 validate
 
 echo "Built bundles:"
-echo "  claude  -> $DIST/claude ($(find "$DIST/claude" -type f | wc -l | tr -d ' ') files)"
-echo "  copilot -> $DIST/copilot ($(find "$DIST/copilot" -type f | wc -l | tr -d ' ') files)"
+echo "  claude         -> $DIST/claude ($(find "$DIST/claude" -type f | wc -l | tr -d ' ') files)"
+echo "  copilot        -> $DIST/copilot ($(find "$DIST/copilot" -type f | wc -l | tr -d ' ') files)"
+echo "  copilot-plugin -> $DIST/copilot-plugin ($(find "$DIST/copilot-plugin" -type f | wc -l | tr -d ' ') files)"
 echo "Validation: OK"

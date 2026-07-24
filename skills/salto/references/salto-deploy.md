@@ -87,6 +87,8 @@ For Azure DevOps remotes, `git.remote` is `{ "provider": "azure", "organization"
 
 Follow these steps in order. Stop and report clearly if any step fails.
 
+**Execution discipline** (this workflow is latency-sensitive): batch independent commands into a single tool call where possible, and keep interim commentary to one short line per numbered step — every extra message between tool calls costs a full model round trip. When learning the shape of an element type, read **one** existing record of that type plus anything it references (e.g. its subsidiary) and the type definition if needed — do not read every sibling record.
+
 ### Step 1: Resolve workspace
 
 If `--workspace <path>` is in `$ARGUMENTS`, use that path. Otherwise check if the current working directory contains `salto.config/workspace.nacl`:
@@ -116,7 +118,7 @@ Then: exactly one match → store it as `TICKET_REF` and print `Ticket: <ref>`; 
 
 **If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first — using the tool that matches where the ticket lives:
 - **Azure DevOps** work item → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; the `AZ_AVAILABLE` probe from Step 3). Use `az` whenever the workspace remote is Azure DevOps — the same way Step 9 uses `az repos` for the PR.
-- **Otherwise** → a connected ticketing MCP (e.g. Jira), or the Atlassian CLI if installed: `acli jira workitem view <KEY>`.
+- **Otherwise** → a connected ticketing MCP (e.g. Jira), or the Atlassian CLI if installed: `acli jira workitem view <KEY>` (to comment later: `acli jira workitem comment create --key <KEY> --body-file <file>` — note the `create` subcommand).
 
 Read the ticket's title/description to derive the actual change, then continue the workflow. Don't infer the change from the ticket id alone.
 
@@ -307,7 +309,7 @@ If `DECISIONS_LOG` is empty, write `No user decisions were required — change a
 Post it using whatever ticketing capability is available — this step is **ticketing-system-agnostic**. Try in this order:
 
 1. **A ticketing MCP server** — discover via tool search and use its "add comment / add work-item comment" capability (Jira, Azure DevOps, or any other connected system). Match the tool to the `TICKET_REF` format detected in Step 2.
-2. **A ticketing CLI** if installed and authenticated: Azure DevOps → `az boards work-item update --id <n> --discussion "<comment body>"`; Jira → the Atlassian CLI (`acli jira workitem comment`) or the `jira` CLI.
+2. **A ticketing CLI** if installed and authenticated: Azure DevOps → `az boards work-item update --id <n> --discussion "<comment body>"`; Jira → the Atlassian CLI (`acli jira workitem comment create --key <KEY> --body-file <file>`) or the `jira` CLI.
 3. **Nothing available** → print the comment body and ask the user to paste it on `<TICKET_REF>` manually.
 
 Outcome handling: success → print `Ticket: commented on <TICKET_REF>`; failure → **do not fail or retry-loop the run** — print a one-line warning, dump the comment body for manual posting, and continue.

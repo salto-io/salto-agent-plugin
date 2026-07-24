@@ -208,3 +208,23 @@ Wrong prefix = deploy failure. The adapter usually catches this in validate-loca
 - **Production vs. sandbox** — NetSuite sandboxes are full mirrors but with their own `account_id`. A deploy run against a sandbox account is a no-op on prod; cross-environment changes always go through Salto's deployment mechanism, never direct.
 
 - **Large workspaces are slow** — NetSuite enterprise workspaces with thousands of saved searches and scripts can take 5+ minutes to fetch state. Plan around that — don't `--refresh-state` unless necessary.
+
+---
+
+## Record-Instance Cheat Sheet (locations, subsidiaries, addresses)
+
+**Address `country` / `timeZone` enum values** — these fields are typed `unknown` in the NACL schema, so nothing validates them locally; a wrong value only fails at the live deploy. NetSuite uses `_camelCase` enum tokens. Verified-in-production examples:
+
+| Country | `country` | Typical `timeZone` |
+| --- | --- | --- |
+| United States | `_unitedStates` | `_americaLosAngeles`, `_americaNewYork`, `_americaChicago` |
+| United Kingdom | `_unitedKingdomGB` | `_europeLondon` |
+| Canada | `_canada` | `_americaToronto` |
+| Japan | `_japan` | `_asiaTokyo` |
+| Israel | `_israel` | `_asiaJerusalem` |
+
+For other countries, follow the same pattern (`_<camelCasedEnglishName>`); when the workspace has `Records/nexus/` entries (e.g. `_unitedStates_California`), their prefixes confirm the country token. Do not spend time hunting for an authoritative enum list in the workspace or adapter sources — it is not there.
+
+**`classTranslationList` is fetch-only** — existing records carry it (account-level translation defaults), but NetSuite does not support deploying it and validate-local raises a Warning. **Omit it when creating new records**; don't copy it from sibling records.
+
+**New location records** — model on an existing location: `name`, `subsidiaryList` (reference existing subsidiary instances), `isInactive = false`, `makeInventoryAvailable = false`, and a `mainAddress` block (`country`, `addressee`, `addr1`/`addr2`, `city`, `state`, `zip`, `addrText` mirroring the address lines with `<br>` separators).

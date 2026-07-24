@@ -116,11 +116,13 @@ From `$ARGUMENTS`, extract:
 
 Then: exactly one match → store it as `TICKET_REF` and print `Ticket: <ref>`; multiple distinct matches → ask the user which one is the ticket for this change; none → leave `TICKET_REF` empty (Step 10b is skipped).
 
-**If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first — using the tool that matches where the ticket lives:
-- **Azure DevOps** work item → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; the `AZ_AVAILABLE` probe from Step 3). Use `az` whenever the workspace remote is Azure DevOps — the same way Step 9 uses `az repos` for the PR.
-- **Otherwise** → a connected ticketing MCP (e.g. Jira), or the Atlassian CLI if installed: `acli jira workitem view <KEY>` (to comment later: `acli jira workitem comment create --key <KEY> --body-file <file>` — note the `create` subcommand).
+**If the ticket *is* the task** (the request points at a ticket / work item instead of spelling out the change), fetch its content first. **Use whatever ITSM integration the user has, in this order:**
 
-Read the ticket's title/description to derive the actual change, then continue the workflow. Don't infer the change from the ticket id alone.
+1. **A connected ITSM MCP server** — check the available tools ONCE (one tool search) for the system matching the ticket-ref format (Jira, ServiceNow, Zendesk, Linear, Azure DevOps, ...). If a matching read tool exists, use it — do not fall through to CLIs.
+2. **An installed ITSM CLI** — probe in one shot for the CLIs matching the ticket format, e.g.: Jira → `acli jira workitem view <KEY>` (Atlassian CLI) or the `jira` CLI; Azure DevOps → `az boards work-item show --id <n> --organization https://dev.azure.com/<org> --output json` (needs the `azure-devops` extension; the `AZ_AVAILABLE` probe from Step 3).
+3. **Neither available** → ask the user to paste the ticket content.
+
+Remember which channel worked — Step 10b uses the same one to comment back. Read the ticket's title/description to derive the actual change, then continue the workflow. Don't infer the change from the ticket id alone.
 
 **Decisions log.** Initialize an empty `DECISIONS_LOG`. From here on, whenever the user makes a decision during this run — answers a clarifying question (target env, which ticket), approves pushing despite warnings, decides how to handle a security issue (Step 6e) or an iteration-limit stop (Steps 6d/11d), or changes scope — append a one-line `question → user's answer` entry. Step 10b posts these to the ticket.
 
@@ -306,10 +308,10 @@ Decisions made during this run:
 
 If `DECISIONS_LOG` is empty, write `No user decisions were required — change applied as requested.` instead of an empty section.
 
-Post it using whatever ticketing capability is available — this step is **ticketing-system-agnostic**. Try in this order:
+Post it through **the same channel that read the ticket in Step 2** (if the ticket was fetched there). Otherwise discover one now, MCP first, in this order:
 
-1. **A ticketing MCP server** — discover via tool search and use its "add comment / add work-item comment" capability (Jira, Azure DevOps, or any other connected system). Match the tool to the `TICKET_REF` format detected in Step 2.
-2. **A ticketing CLI** if installed and authenticated: Azure DevOps → `az boards work-item update --id <n> --discussion "<comment body>"`; Jira → the Atlassian CLI (`acli jira workitem comment create --key <KEY> --body-file <file>`) or the `jira` CLI.
+1. **A connected ITSM MCP server** — its "add comment / add work-item comment" tool for whatever system matches `TICKET_REF` (Jira, ServiceNow, Zendesk, Linear, Azure DevOps, ...). If an MCP handles it, don't touch CLIs.
+2. **An installed ITSM CLI**: Jira → `acli jira workitem comment create --key <KEY> --body-file <file>` (note the `create` subcommand) or the `jira` CLI; Azure DevOps → `az boards work-item update --id <n> --discussion "<comment body>"`.
 3. **Nothing available** → print the comment body and ask the user to paste it on `<TICKET_REF>` manually.
 
 Outcome handling: success → print `Ticket: commented on <TICKET_REF>`; failure → **do not fail or retry-loop the run** — print a one-line warning, dump the comment body for manual posting, and continue.

@@ -87,6 +87,8 @@ For Azure DevOps remotes, `git.remote` is `{ "provider": "azure", "organization"
 
 Follow these steps in order. Stop and report clearly if any step fails.
 
+**Locating salto-cli** (do this once, before Step 1): every command below assumes `salto-cli` resolves. If it is not on PATH (common on Windows installs), locate the binary once — `where.exe salto-cli` / `Get-Command salto-cli` on Windows, `which salto-cli` elsewhere, or ask the user for the install path — and use that absolute path for **every** invocation in this workflow. PowerShell notes: executables in the current directory need the `.\` prefix, and a quoted path (e.g. containing spaces) must be invoked with the call operator: `& "C:\path\to\salto-cli.exe" deployment preflight ...`. All JSON contracts are identical regardless of how the binary is invoked (self-update included — it resolves its own location via the running process, not PATH).
+
 **Execution discipline** (this workflow is latency-sensitive): batch independent commands into a single tool call where possible, and keep interim commentary to one short line per numbered step — every extra message between tool calls costs a full model round trip. When learning the shape of an element type, read **one** existing record of that type plus anything it references (e.g. its subsidiary) and the type definition if needed — do not read every sibling record.
 
 ### Step 1: Resolve workspace

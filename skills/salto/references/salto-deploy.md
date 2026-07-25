@@ -253,7 +253,7 @@ If baseline errors were ignored in Step 6, append: `> Note: N pre-existing basel
 
 **Existing-deployment mode**: skip ship. Commit and push with plain git (`git -C "<WORKTREE_PATH>" add -- '*.nacl'` / `commit` / `push -u origin <BRANCH>`), then go straight to the Step 11 preview loop with the known deployment id.
 
-**New-deployment mode**, when either (`GIT_PROVIDER=github` AND `GH_AVAILABLE=true`) OR (`GIT_PROVIDER=azure` AND preflight reported `git.adoPatPresent: true`):
+**New-deployment mode**, when either (`GIT_PROVIDER=github` AND `GH_AVAILABLE=true`) OR (`GIT_PROVIDER=azure` AND preflight reported `git.adoPatPresent: true`). (An ADO remote **without** the PAT is not a dead end — the Step 9 fallback can open the PR through a connected Azure DevOps MCP or `az`; ship is just the faster single-call path.)
 
 ```
 salto-cli deployment ship --workspace "<WORKTREE_PATH>" --target-env-id "<ENV_UUID>" --title "<description>" --body-file "<STATE_DIR>/pr-body.md" --base "<ORIGINAL_BRANCH>" --plan-file "<STATE_DIR>/preview-plan.json" --allow-warnings
@@ -275,11 +275,12 @@ git -C "<WORKTREE_PATH>" commit -m "<description>"
 git -C "<WORKTREE_PATH>" push -u origin "<BRANCH>"
 ```
 
-Then open the PR:
+Then open the PR, trying in this order:
 
+- **A connected git-host MCP** with a create-pull-request capability (e.g. an Azure DevOps MCP's PR tools, a GitHub MCP) — one tool search; if a matching tool exists, create the PR with it (source `<BRANCH>`, target `<ORIGINAL_BRANCH>`, the pr-body.md content as description) and take the PR URL from its response. For ADO, the URL must look like `https://dev.azure.com/<ADO_ORG>/<ADO_PROJECT>/_git/<ADO_REPO>/pullrequest/<id>`.
 - **Azure DevOps with az available**: `az repos pr create --organization https://dev.azure.com/<ADO_ORG> --project <ADO_PROJECT> --repository <ADO_REPO> --source-branch <BRANCH> --target-branch <ORIGINAL_BRANCH> --title "<description>" --description "<PR body text>" --output json`; build `PR_URL` as `https://dev.azure.com/<ADO_ORG>/<ADO_PROJECT>/_git/<ADO_REPO>/pullrequest/<pullRequestId>`. If an active PR already exists for the branch, recover it via `az repos pr list --source-branch <BRANCH> --status active`.
-- **Host known, PR CLI unavailable**: print the compare URL (`https://github.com/<GITHUB_REPO>/compare/<ORIGINAL_BRANCH>...<BRANCH>?expand=1` or the ADO `pullrequestcreate` URL) and ask the user to open the PR and paste its URL.
-- **Other hosts** (`GIT_PROVIDER=other`): tell the user to open a PR manually, then either create a deployment in the Salto UI and re-run with `--deployment-id`, or re-run with `--branch-name <BRANCH>`. Stop here.
+- **Host known, no PR tool available**: print the compare URL (`https://github.com/<GITHUB_REPO>/compare/<ORIGINAL_BRANCH>...<BRANCH>?expand=1` or the ADO `pullrequestcreate` URL) and ask the user to open the PR and paste its URL.
+- **Other hosts** (`GIT_PROVIDER=other`): the same MCP option applies if one exists for that host; otherwise tell the user to open a PR manually, then either create a deployment in the Salto UI and re-run with `--deployment-id`, or re-run with `--branch-name <BRANCH>`. Stop here if no PR can be produced.
 
 With `PR_URL` in hand, create the deployment and run the preview:
 

@@ -48,7 +48,7 @@ This skill **only** supports the case where the PR it opens targets the same bra
 }
 ```
 
-For Azure DevOps remotes, `git.remote` is `{ "provider": "azure", "organization": "...", "project": "...", "repo": "..." }`.
+For Azure DevOps remotes, `git.remote` is `{ "provider": "azure", "organization": "...", "project": "...", "repo": "..." }` and `git.adoPatPresent` reports whether `AZURE_DEVOPS_EXT_PAT` is set (ship needs it).
 
 `salto-cli deployment prepare-worktree --workspace <path> --slug <task-slug> --pull` — dirty-tree check, ff-only pull, `salto/<slug>-<timestamp>` branch + worktree, temp state dir:
 
@@ -56,7 +56,7 @@ For Azure DevOps remotes, `git.remote` is `{ "provider": "azure", "organization"
 { "branch": "salto/<slug>-<ts>", "worktreePath": "...", "stateDir": "...", "gitRoot": "...", "baseBranch": "main", "baseCommit": "<sha>" }
 ```
 
-`salto-cli deployment ship --workspace <worktree> --target-env-id <id> --title <t> --body-file <f> --base <branch> --allow-warnings` — the whole post-edit tail in one call: commit NACL changes, push, open (or reuse) the GitHub PR, create the Salto deployment from it, wait for the SaaS preview, print the plan summary. With `--allow-warnings` (always pass it — warnings are surfaced in `changeErrors.relevant` for you to report): exit 0 = preview clean or warnings only; exit 3 = Error-severity changeErrors remain (the PR and deployment still exist — continue with the fix loop). GitHub remotes only; on other hosts use the granular fallback.
+`salto-cli deployment ship --workspace <worktree> --target-env-id <id> --title <t> --body-file <f> --base <branch> --allow-warnings` — the whole post-edit tail in one call: commit NACL changes, push, open (or reuse) the GitHub PR, create the Salto deployment from it, wait for the SaaS preview, print the plan summary. With `--allow-warnings` (always pass it — warnings are surfaced in `changeErrors.relevant` for you to report): exit 0 = preview clean or warnings only; exit 3 = Error-severity changeErrors remain (the PR and deployment still exist — continue with the fix loop). Supports GitHub (PR via `gh`) and Azure DevOps (PR via the ADO REST API — requires the `AZURE_DEVOPS_EXT_PAT` env var, a Personal Access Token with Code Read & Write scope; `preflight` warns when it's missing on an ADO remote and reports `git.adoPatPresent`). Other hosts use the granular fallback.
 
 ```json
 {
@@ -249,11 +249,11 @@ Salto will create a deployment from this PR (target env: `<ENV_NAME>`, <ENV_UUID
 
 If baseline errors were ignored in Step 6, append: `> Note: N pre-existing baseline changeErrors on unrelated elements were ignored. They are not introduced by this PR.`
 
-### Step 8: Ship — one CLI call (GitHub + gh available)
+### Step 8: Ship — one CLI call (GitHub with gh, or Azure DevOps with AZURE_DEVOPS_EXT_PAT)
 
 **Existing-deployment mode**: skip ship. Commit and push with plain git (`git -C "<WORKTREE_PATH>" add -- '*.nacl'` / `commit` / `push -u origin <BRANCH>`), then go straight to the Step 11 preview loop with the known deployment id.
 
-**New-deployment mode**, when `GIT_PROVIDER=github` AND `GH_AVAILABLE=true`:
+**New-deployment mode**, when either (`GIT_PROVIDER=github` AND `GH_AVAILABLE=true`) OR (`GIT_PROVIDER=azure` AND preflight reported `git.adoPatPresent: true`):
 
 ```
 salto-cli deployment ship --workspace "<WORKTREE_PATH>" --target-env-id "<ENV_UUID>" --title "<description>" --body-file "<STATE_DIR>/pr-body.md" --base "<ORIGINAL_BRANCH>" --plan-file "<STATE_DIR>/preview-plan.json" --allow-warnings
@@ -265,7 +265,7 @@ This one command commits, pushes, opens the PR, creates the Salto deployment, wa
 - Exit 3 → Error-severity relevant changeErrors remain. The PR and deployment exist; go to the Step 11 fix loop.
 - Any other failure (gh auth, push rejection, deployment-creation error) → print the error verbatim and stop; do not retry blindly. If deployment creation is the failing part, the preconditions note from the fallback path below applies (env must have `deploymentBranchingType=ENV_BASE_BRANCH`, a connected repo, and `pushSettings=AUTOMATIC`).
 
-### Step 9: Fallback — non-GitHub host or gh unavailable
+### Step 9: Fallback — unsupported host, gh unavailable, or missing ADO PAT
 
 Commit and push with plain git:
 

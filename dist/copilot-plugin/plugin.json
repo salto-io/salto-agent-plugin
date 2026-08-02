@@ -1,6 +1,6 @@
 {
   "name": "salto-cli-skills",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Claude Code skills for automating Salto NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.",
   "author": {
     "name": "Salto Inc",

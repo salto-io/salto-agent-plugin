@@ -55,6 +55,9 @@ emit_skill() {
 # --- Claude Code plugin -----------------------------------------------------
 # SKILL.md lives at skills/salto/; references/ and adapters/ live at plugin root
 # (the absolute ${CLAUDE_PLUGIN_ROOT} token resolves there).
+# Also emits the repo-root .claude-plugin/marketplace.json Claude Code reads on
+# `claude plugin marketplace add <this repo>` (it accepts no other location),
+# pointing at the committed dist/claude bundle.
 build_claude() {
   local base='${CLAUDE_PLUGIN_ROOT}' out="$DIST/claude"
   rm -rf "$out"
@@ -83,6 +86,18 @@ build_claude() {
   }' "$META" >"$out/.claude-plugin/marketplace.json"
 
   emit_skill "$out/skills/salto/SKILL.md" "$out" "$base"
+
+  mkdir -p "$ROOT/.claude-plugin"
+  jq '{
+    name: .marketplace.name,
+    owner: .marketplace.owner,
+    plugins: [{
+      name: .plugin.name,
+      description: .marketplace.description,
+      version: .version,
+      source: "./dist/claude"
+    }]
+  }' "$META" >"$ROOT/.claude-plugin/marketplace.json"
 }
 
 # --- GitHub Copilot agent skill --------------------------------------------
@@ -162,6 +177,7 @@ validate() {
     "copilot-plugin/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "copilot-plugin/skills/salto/adapters/zendesk/zendesk.md"
   )
+  [ -f "$ROOT/.claude-plugin/marketplace.json" ] || { echo "FAIL: missing .claude-plugin/marketplace.json" >&2; problems=1; }
   [ -f "$ROOT/.github/plugin/marketplace.json" ] || { echo "FAIL: missing .github/plugin/marketplace.json" >&2; problems=1; }
   for f in "${required[@]}"; do
     [ -f "$DIST/$f" ] || { echo "FAIL: missing required file $f" >&2; problems=1; }

@@ -26,9 +26,7 @@ Adapter-specific knowledge is loaded automatically based on what your workspace 
 /plugin install salto-cli-skills@salto-claude-plugin
 ```
 
-The plugin is hosted in a private GitHub repo, so Claude Code needs your GitHub credentials to fetch it. Either:
-- Be authenticated via `gh auth login` (Claude Code picks this up automatically), or
-- Export `GITHUB_TOKEN` with a PAT that has `repo:read` on `salto-io/salto-agent-plugin`.
+The repo is public, so no GitHub credentials are needed to install it.
 
 ## Required environment variables
 

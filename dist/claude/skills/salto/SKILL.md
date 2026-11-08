@@ -11,6 +11,14 @@ description: Single entry point for all Salto workflows. Type a natural-language
 
 The single Salto entry point. This skill is a thin router. Based on your request it loads the right internal workflow (`references/salto-deploy.md` or `references/salto-explore.md`) plus any adapter-specific knowledge (`adapters/<adapter>/`) bundled with this skill, then executes those instructions with your original `$ARGUMENTS`.
 
+> [!IMPORTANT]
+> **Salto only: never use the Salesforce CLI (`sf` / `sfdx`).** This applies to every route below (DEPLOY, EXPLORE, MIGRATE).
+>
+> - Work only through `salto-cli` and NACL file edits.
+> - Never run `sf` or `sfdx`, not even read-only commands: no `sf data query`, `sf sobject describe`, `sf org ...`, `sf apex ...`, `sf project deploy/retrieve`, `sfdx force:...`. This holds even when the user says their `sf` CLI is logged in.
+> - Why: `sf` goes straight to the org. It skips Salto's preview, conflict check, deployment record and audit trail, and it can change the org outside the PR and deployment flow.
+> - If Salto can't do the task (the data isn't in the workspace, it needs running Apex tests, the deploy flow can't run here, ...), stop and tell the user that Salto can't do it and why. Don't fall back to `sf`, and don't offer to run it.
+
 ---
 
 ## Step 1: Locate skill files

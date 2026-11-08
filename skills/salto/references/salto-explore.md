@@ -16,6 +16,12 @@ Answer questions about a Salto workspace without making any changes. Reads NACL 
 - **Deployment history**: "list my recent deployments", "show deployment abc123"
 - **Workspace info**: "what adapters are configured?", "what environments do I have?"
 
+## Rules
+
+- Answer only from the NACL files and `salto-cli`.
+- Never run `sf` or `sfdx` (the Salesforce CLI) to query or inspect the org: no `sf data query`, `sf sobject describe`, `sf org ...`, `sf apex ...`. This holds even when the user says their `sf` CLI is logged in.
+- If the workspace doesn't hold the answer (for example, records of an object that is not in the Salesforce `fetch.data.includeObjects`), say so and stop. You may explain how to bring the data into Salto (add the object to the fetch config, then fetch), but don't offer to run `sf` instead.
+
 ## Requirements
 
 - A valid Salto workspace (directory with `salto.config/workspace.nacl`)

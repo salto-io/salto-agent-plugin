@@ -18,9 +18,9 @@ Answer questions about a Salto workspace without making any changes. Reads NACL 
 
 ## Rules
 
-- Answer only from the NACL files and `salto-cli`.
+- Answer only from the workspace files (NACLs and `static-resources/`) and `salto-cli`.
 - Never run `sf` or `sfdx` (the Salesforce CLI) to query or inspect the org: no `sf data query`, `sf sobject describe`, `sf org ...`, `sf apex ...`. This holds even when the user says their `sf` CLI is logged in.
-- If the workspace doesn't hold the answer (for example, records of an object that is not in the Salesforce `fetch.data.includeObjects`), say so and stop. You may explain how to bring the data into Salto (add the object to the fetch config through the DEPLOY route, then fetch in the Salto app), but don't make that change here, and don't offer to run `sf` instead.
+- If the workspace doesn't hold the answer (for example, records of an object that is not in the Salesforce `fetch.data.includeObjects`), say so and stop. You may explain how to bring the data into Salto (change the env's fetch settings in Salto, then fetch), but don't make that change here, and don't offer to run `sf` instead.
 
 ## Requirements
 

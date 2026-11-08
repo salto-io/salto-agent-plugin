@@ -24,7 +24,7 @@ In both modes, state is downloaded directly from the target environment — no "
 - Never push until the local plan is clean (zero relevant `changeErrors`). If `validate-local` fails for any reason, stop — do not push.
 - Never force-push to any branch outside `salto/*`.
 - Stop immediately on auth or credential errors. Report clearly and do not attempt to debug credentials.
-- Never run `sf` or `sfdx` (the Salesforce CLI), not even read-only commands like `sf org list`. Changes reach the org only through this workflow (`salto-cli` + PR + Salto deployment; the Step 9 fallback is part of it). If the workflow can't run (preflight fails, no linked env, no git repo), stop and report why. Do not deploy outside Salto (`sf project deploy`, a direct API call), even if the user asks.
+- Never run `sf` or `sfdx` (the Salesforce CLI), not even read-only commands like `sf org list`. Changes reach the org only through this workflow (`salto-cli` + PR + Salto deployment; the Step 9 fallback is part of it). If the workflow can't run (preflight still fails after Step 3's env question, no linked env, no git repo), stop and report why. Do not deploy outside Salto (`sf project deploy`, a direct API call), even if the user asks.
 - Bounded loops: max 5 local iterations, max 3 SaaS iterations. If either limit is hit, stop and summarise what remains unresolved.
 
 ## Supported scenario: PR base = env's tracked branch (Path A only)

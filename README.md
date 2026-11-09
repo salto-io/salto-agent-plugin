@@ -4,9 +4,9 @@ Claude Code skills for automating [Salto](https://www.salto.io) NACL workflows: 
 
 ## What this plugin gives you
 
-A single slash command — `/salto "<natural language request>"` — that routes your request to the right workflow: **Explore**, **Deploy**, or **Migrate**.
+A single slash command — `/salto "<natural language request>"` — that routes your request to the right workflow: **Explore** or **Deploy**.
 
-Adapter-specific knowledge is loaded automatically based on what your workspace uses, from a per-adapter directory (`adapters/<adapter>/`). The Salesforce directory also carries CPQ, RLM, and the CPQ→RLM migration knowledge. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
+Adapter-specific knowledge is loaded automatically based on what your workspace uses, from a per-adapter directory (`adapters/<adapter>/`). The Salesforce directory also carries CPQ and RLM knowledge. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
 
 ### Explore (read-only)
 
@@ -36,16 +36,6 @@ More:
 - **Ticket-driven work** — put a ticket in the request (Jira, Azure DevOps, and others). The plugin can read the task from the ticket, and comments back with the PR, deployment, and decisions you made.
 - **Focus on your change only** — old, unrelated errors in the workspace do not block your change.
 - **You stay in control** — the plugin never applies the deployment. You approve it in the Salto UI.
-
-### Migrate Salesforce CPQ → Revenue Cloud Advanced (RLM / RCA)
-
-- Reads your CPQ setup **read-only**.
-- Maps catalog, bundles, attributes, pricing, and rules to Revenue Cloud Advanced. Marks each item as clean, partial, or no equivalent.
-- **Stops and asks you** when a decision cannot come from the data (selling models, prices, rules). It never guesses.
-- Generates the new configuration, reviews it, and runs a preview.
-- **Stops before any real deployment** — a person approves.
-
-Options: `--source <cpq workspace>`, `--target <rca workspace>`, `--area catalog|pricing|attributes|all`.
 
 ### Supported applications
 

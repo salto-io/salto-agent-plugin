@@ -3,6 +3,13 @@ name: salto
 description: Single entry point for all Salto workflows. Type a natural-language request and the skill routes it internally — deploy (make changes), explore (query/inspect), or migrate (CPQ→RLM rebuild) — and loads adapter-specific knowledge as needed. Use this for any task against a Salto NACL workspace.
 ---
 
+> [!IMPORTANT]
+> **Gemini CLI notes** (this copy of the skill is built for Gemini CLI):
+>
+> - `<SKILL_DIR>` below means this skill's folder: the absolute path Gemini showed under `<available_resources>` when it activated the skill (usually `~/.gemini/skills/salto`). Read every bundled file by its full path under that folder. A relative path such as `references/...` resolves against the project, not the skill.
+> - `$ARGUMENTS` means the user's request: the text sent with or after `/salto`, including flags such as `--workspace`, `--deployment-id` or `--branch-name`.
+> - Gemini file tools work only in folders the user allowed. If a tool says a path (for example `WORKTREE_PATH` or `STATE_DIR`) is not in the workspace, stop and ask the user to run `/directory add <path>` (comma-separate several paths), then continue. Never edit the user's working tree instead, and don't write files with shell commands.
+
 # Salto
 
 > [!NOTE]
@@ -23,10 +30,10 @@ The single Salto entry point. This skill is a thin router. Based on your request
 
 ## Step 1: Locate skill files
 
-This skill's workflow and adapter files are bundled alongside it. Load any sibling file by its path under `.`:
+This skill's workflow and adapter files are bundled alongside it. Load any sibling file by its path under `<SKILL_DIR>`:
 
-- Reference workflows: `./references/salto-deploy.md`, `./references/salto-explore.md`
-- Adapter knowledge lives in a **per-adapter directory**: `./adapters/<adapter>/<adapter>.md` (e.g. `adapters/zendesk/zendesk.md`, `adapters/netsuite/netsuite.md`, `adapters/salesforce/salesforce.md`).
+- Reference workflows: `<SKILL_DIR>/references/salto-deploy.md`, `<SKILL_DIR>/references/salto-explore.md`
+- Adapter knowledge lives in a **per-adapter directory**: `<SKILL_DIR>/adapters/<adapter>/<adapter>.md` (e.g. `adapters/zendesk/zendesk.md`, `adapters/netsuite/netsuite.md`, `adapters/salesforce/salesforce.md`).
 
 No discovery needed.
 
@@ -34,17 +41,17 @@ No discovery needed.
 
 The `salesforce` adapter directory holds extra files beyond `salesforce.md`:
 
-- `./adapters/salesforce/cpq.md` — CPQ (SBQQ/sbaa) record knowledge.
-- `./adapters/salesforce/rlm.md` — RLM record knowledge.
-- `./adapters/salesforce/cpq-to-rlm-migration.md` — the CPQ→RLM migration workflow (loaded by the MIGRATE route, below).
+- `<SKILL_DIR>/adapters/salesforce/cpq.md` — CPQ (SBQQ/sbaa) record knowledge.
+- `<SKILL_DIR>/adapters/salesforce/rlm.md` — RLM record knowledge.
+- `<SKILL_DIR>/adapters/salesforce/cpq-to-rlm-migration.md` — the CPQ→RLM migration workflow (loaded by the MIGRATE route, below).
 
 > [!IMPORTANT]
 > **RLM is now called RCA (Revenue Cloud Advanced).** Salesforce renamed the product. In **our code** (and therefore in the NACL object names, the adapter config, and the `rlm.md` filename) it is still **RLM** — but when talking to users, "RLM", "RCA", and "Revenue Cloud Advanced" all mean the same thing. Treat user mentions of RCA / Revenue Cloud Advanced as RLM.
 
 CPQ and RLM are **flavors of the `salesforce` adapter**, distinguished by the workspace's `salesforce` **data** config (`fetch.data.includeObjects` in `salto.config/adapters/salesforce/salesforce.nacl`). Whenever a workflow loads `adapters/salesforce/salesforce.md` for a Salesforce workspace, also load the matching sub-adapter file:
 
-- `includeObjects` contains `SBQQ__` or `sbaa__` → additionally load `./adapters/salesforce/cpq.md` (CPQ).
-- `includeObjects` contains RLM objects (e.g. `ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`) → additionally load `./adapters/salesforce/rlm.md` (RLM/RCA).
+- `includeObjects` contains `SBQQ__` or `sbaa__` → additionally load `<SKILL_DIR>/adapters/salesforce/cpq.md` (CPQ).
+- `includeObjects` contains RLM objects (e.g. `ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`) → additionally load `<SKILL_DIR>/adapters/salesforce/rlm.md` (RLM/RCA).
 
 ---
 
@@ -87,19 +94,19 @@ Keywords that signal EXPLORE: `what`, `show`, `list`, `which`, `how many`, `expl
 **If MIGRATE:**
 
 1. Print: `Routing to cpq-to-rlm-migration workflow...`
-2. Read `./adapters/salesforce/cpq-to-rlm-migration.md` into context.
+2. Read `<SKILL_DIR>/adapters/salesforce/cpq-to-rlm-migration.md` into context.
 3. Execute the instructions with the full original `$ARGUMENTS` unchanged. That workflow loads both `adapters/salesforce/cpq.md` and `adapters/salesforce/rlm.md`, reads the CPQ source read-only, **stops to ask the user about lossy/ambiguous areas it can't decide from the data (a Clarification Gate — mandatory even in auto mode; never fabricate selling models/terms/prices/rule behavior)**, and stops again at a human gate before any real deploy.
 
 **If DEPLOY:**
 
 1. Print: `Routing to salto-deploy workflow...`
-2. Read `./references/salto-deploy.md` into context.
-3. Execute the instructions with the full original `$ARGUMENTS` unchanged. The reference file uses `.` for paths to adapter knowledge (e.g. `./adapters/zendesk/zendesk.md`).
+2. Read `<SKILL_DIR>/references/salto-deploy.md` into context.
+3. Execute the instructions with the full original `$ARGUMENTS` unchanged. The reference file uses `<SKILL_DIR>` for paths to adapter knowledge (e.g. `<SKILL_DIR>/adapters/zendesk/zendesk.md`).
 
 **If EXPLORE:**
 
 1. Print: `Routing to salto-explore workflow...`
-2. Read `./references/salto-explore.md` into context.
+2. Read `<SKILL_DIR>/references/salto-explore.md` into context.
 3. Execute the instructions with the full original `$ARGUMENTS` unchanged.
 
 **If AMBIGUOUS:**

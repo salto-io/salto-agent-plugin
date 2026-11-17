@@ -161,12 +161,12 @@ From here on, **every CLI call that targets an env uses `--target-env-id "<ENV_U
 
 ### Step 3b: Load adapter knowledge (conditional)
 
-For each adapter in `ADAPTER_LIST`, read its knowledge file if one is bundled with this skill: `./adapters/<adapter>/<adapter>.md`. Missing adapter files are silently skipped — they are enrichment, not a requirement.
+For each adapter in `ADAPTER_LIST`, read its knowledge file if one is bundled with this skill: `<SKILL_DIR>/adapters/<adapter>/<adapter>.md`. Missing adapter files are silently skipped — they are enrichment, not a requirement.
 
 **Salesforce sub-adapters (CPQ / RLM-RCA):** for the `salesforce` adapter, also inspect the workspace data config (`fetch.data.includeObjects` in `salto.config/adapters/salesforce/salesforce.nacl`) and additionally read the matching sub-adapter file:
 
-- `includeObjects` contains `SBQQ__` or `sbaa__` → `./adapters/salesforce/cpq.md`.
-- `includeObjects` contains RLM objects (`ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`, …) → `./adapters/salesforce/rlm.md`. (RLM is Salesforce's Revenue Cloud Advanced / **RCA** — same product, renamed; our code still calls it RLM.)
+- `includeObjects` contains `SBQQ__` or `sbaa__` → `<SKILL_DIR>/adapters/salesforce/cpq.md`.
+- `includeObjects` contains RLM objects (`ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`, …) → `<SKILL_DIR>/adapters/salesforce/rlm.md`. (RLM is Salesforce's Revenue Cloud Advanced / **RCA** — same product, renamed; our code still calls it RLM.)
 
 ### Steps 4–5: Create the worktree and state dir — one CLI call
 

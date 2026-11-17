@@ -83,23 +83,36 @@ The repo is public, so no GitHub credentials are needed to install it.
 gemini skills install https://github.com/salto-io/salto-agent-plugin --path dist/gemini/skills
 ```
 
-This installs the `salto` skill for your user (all projects) in `~/.gemini/skills/salto`. Check it with `gemini skills list`.
+This installs the `salto` skill for your user (all projects) in `~/.gemini/skills/salto`. Check it with `gemini skills list`. To update, run the same install command again. Gemini CLI does not update skills automatically.
 
-Use it the same way: `/salto "<request>"`, or ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
+### Start Gemini CLI for Salto
 
-To update, run the same install command again. Gemini CLI does not update skills automatically.
+Gemini CLI limits the agent more than Claude Code does. For deploy requests, `salto-cli` creates the change worktree next to your workspace folder and keeps temp files in `TMPDIR`. Gemini edits files only in folders you allow, and it reads allowed folders without asking. So:
 
-**Deploy requests in Gemini CLI.** Gemini CLI limits the agent more than Claude Code does. For deploy requests, start it from your workspace's git root like this:
+1. Keep each Salto workspace (its git folder) in its own parent folder, for example `~/salto/<workspace>`. Never put it directly in your home folder.
+2. Start Gemini inside the workspace (don't use `--workspace`), and allow only that parent folder:
 
-```
-GIT_CONFIG_PARAMETERS="'credential.https://github.com.helper=!gh auth git-credential'" \
-  gemini --include-directories ..,"${TMPDIR:-/tmp}"
-```
+   ```
+   mkdir -p "$HOME/salto/tmp"
+   cd "$HOME/salto/<workspace>"
+   TMPDIR="$HOME/salto/tmp" gemini --include-directories ..
+   ```
 
-- `--include-directories` — `salto-cli` creates the change worktree next to your workspace folder and keeps temp files in your temp folder. Gemini CLI edits files only in folders you allow.
-- `GIT_CONFIG_PARAMETERS` — Gemini CLI turns off git credential helpers for the commands it runs, so `git push` over HTTPS fails ("could not read Username"). This lets git use your `gh` login. You don't need it if your workspace repo uses an SSH remote.
+   If you start Gemini another way, the skill asks you to add the folder it needs with `/directory add <path>`.
+3. Pushing: Gemini CLI turns off git credential helpers for the commands it runs, so `git push` over HTTPS fails ("could not read Username").
+   - An SSH remote usually works when your key is loaded in `ssh-agent`. Gemini ignores `core.sshCommand` and can't ask for a key passphrase.
+   - GitHub over HTTPS: start Gemini with your `gh` login turned back on for git:
 
-Explore requests need neither.
+     ```
+     GIT_CONFIG_PARAMETERS="'credential.https://github.com.helper=!gh auth git-credential'" \
+       TMPDIR="$HOME/salto/tmp" gemini --include-directories ..
+     ```
+
+     This lets the git commands the agent runs in this session use your `gh` GitHub login. It needs `gh` installed and logged in (`gh auth login`). Don't combine it with `--yolo` or auto-approve.
+   - Azure DevOps or other git hosts over HTTPS: deploys from Gemini CLI are not supported yet. Use an SSH remote.
+4. If your admin turned on `security.environmentVariableRedaction`, add `SALTO_API_TOKEN` (and `SSH_AUTH_SOCK` for SSH) to `security.environmentVariableRedaction.allowed` in your Gemini settings.
+
+Then use it the same way: `/salto "<request>"`, or ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
 
 ## Required environment variables
 

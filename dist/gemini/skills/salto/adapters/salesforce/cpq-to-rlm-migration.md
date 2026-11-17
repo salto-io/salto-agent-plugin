@@ -17,9 +17,9 @@ Therefore this workflow:
 
 ## Step 0 — Load adapter knowledge
 
-Read both, using `.`:
-- `./adapters/salesforce/cpq.md` — source semantics (SBQQ/sbaa record shapes, fields, deploy quirks).
-- `./adapters/salesforce/rlm.md` — target semantics (RLM objects, saltoID Name/Code keys, exact field API names, Draft-status quirk). **`rlm.md` is the source of truth for exact RLM field names** — this file maps at the object/concept level.
+Read both, using `<SKILL_DIR>`:
+- `<SKILL_DIR>/adapters/salesforce/cpq.md` — source semantics (SBQQ/sbaa record shapes, fields, deploy quirks).
+- `<SKILL_DIR>/adapters/salesforce/rlm.md` — target semantics (RLM objects, saltoID Name/Code keys, exact field API names, Draft-status quirk). **`rlm.md` is the source of truth for exact RLM field names** — this file maps at the object/concept level.
 
 ---
 
@@ -122,7 +122,7 @@ Tags: ✅ clean · ⚠️ lossy / judgment call · ❌ no target (gap → manual
 - Fix findings and re-run the reviewer until clean.
 
 ### Phase 5 — Preview (delegated)
-- Hand the generated changes to the deploy workflow: read `./references/salto-deploy.md` and run its **preview** (`salto deploy --preview` / `deployment preview`) against the target. Loop back to Phase 3 on changeErrors (bounded iterations).
+- Hand the generated changes to the deploy workflow: read `<SKILL_DIR>/references/salto-deploy.md` and run its **preview** (`salto deploy --preview` / `deployment preview`) against the target. Loop back to Phase 3 on changeErrors (bounded iterations).
 
 ### Phase 6 — Human gate (hard stop)
 - Present: the approved mapping, the generated-NaCL summary, the reviewer verdict, the preview plan, and the explicit gaps/manual list.

@@ -5,9 +5,10 @@
 # Emits:
 #   dist/claude/   — Claude Code plugin ({{SKILL_ROOT}} -> ${CLAUDE_PLUGIN_ROOT})
 #   dist/copilot/  — GitHub Copilot agent skill ({{SKILL_ROOT}} -> .)
-#   dist/gemini/   — Gemini CLI agent skill ({{SKILL_ROOT}} -> .)
+#   dist/gemini/   — Gemini CLI agent skill ({{SKILL_ROOT}} -> <SKILL_DIR>)
 #
-# The ONLY content transform is substituting the {{SKILL_ROOT}} path token.
+# The content transforms are substituting the {{SKILL_ROOT}} path token and, for
+# Gemini only, adding generators/gemini-skill-note.md after SKILL.md's frontmatter.
 # Everything else is mechanical copy + per-agent manifest generation.
 #
 # Requires: bash, jq, perl (macOS + Linux). Not Windows.
@@ -152,15 +153,19 @@ build_copilot_plugin() {
 # --- Gemini CLI agent skill -------------------------------------------------
 # Installable via `gemini skills install <this repo> --path dist/gemini/skills`
 # (Gemini copies the skill dir into ~/.gemini/skills/salto; no manifest needed).
-# Same fully self-contained layout as the Copilot skill: when Gemini activates
-# the skill it gives the model the skill's absolute directory, and the relative
-# paths resolve against it.
+# Same fully self-contained layout as the Copilot skill. Gemini resolves relative
+# paths against the project, not the skill, so the token becomes <SKILL_DIR> and
+# a Gemini-only note (generators/gemini-skill-note.md) tells the model to use the
+# absolute skill folder Gemini shows on activation. The note also covers
+# $ARGUMENTS (Gemini doesn't fill it) and Gemini's allowed-folders limit.
 build_gemini() {
-  local base='.' out="$DIST/gemini" skilldir
+  local base='<SKILL_DIR>' out="$DIST/gemini" skilldir
   rm -rf "$out"
   skilldir="$out/skills/salto"
 
   emit_skill "$skilldir/SKILL.md" "$skilldir" "$base"
+  NOTE="$(cat "$ROOT/generators/gemini-skill-note.md")" \
+    perl -0pi -e 's/\A(---\n.*?\n---\n)/$1\n$ENV{NOTE}\n/s' "$skilldir/SKILL.md"
 }
 
 # --- validation -------------------------------------------------------------
@@ -194,11 +199,16 @@ validate() {
     "gemini/skills/salto/SKILL.md"
     "gemini/skills/salto/VERSION"
     "gemini/skills/salto/references/salto-deploy.md"
+    "gemini/skills/salto/references/salto-explore.md"
+    "gemini/skills/salto/adapters/jira/jira.md"
+    "gemini/skills/salto/adapters/netsuite/netsuite.md"
+    "gemini/skills/salto/adapters/salesforce/salesforce.md"
     "gemini/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "gemini/skills/salto/adapters/zendesk/zendesk.md"
   )
   [ -f "$ROOT/.claude-plugin/marketplace.json" ] || { echo "FAIL: missing .claude-plugin/marketplace.json" >&2; problems=1; }
   [ -f "$ROOT/.github/plugin/marketplace.json" ] || { echo "FAIL: missing .github/plugin/marketplace.json" >&2; problems=1; }
+  grep -q 'Gemini CLI notes' "$DIST/gemini/skills/salto/SKILL.md" 2>/dev/null || { echo "FAIL: Gemini note missing from gemini SKILL.md" >&2; problems=1; }
   for f in "${required[@]}"; do
     [ -f "$DIST/$f" ] || { echo "FAIL: missing required file $f" >&2; problems=1; }
   done

@@ -98,7 +98,7 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
    TMPDIR="$HOME/salto/tmp" gemini --include-directories ..
    ```
 
-   If you start Gemini another way, the skill asks you to add the folder it needs with `/directory add <path>`.
+   Gemini asks whether to trust `..`; choose Yes. If you start Gemini another way, the skill asks you to add the folder it needs with `/directory add <path>`.
 3. Pushing: Gemini CLI turns off git credential helpers for the commands it runs, so `git push` over HTTPS fails ("could not read Username").
    - An SSH remote usually works when your key is loaded in `ssh-agent`. Gemini ignores `core.sshCommand` and can't ask for a key passphrase.
    - GitHub over HTTPS: start Gemini with your `gh` login turned back on for git:

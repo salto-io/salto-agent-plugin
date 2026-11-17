@@ -203,6 +203,8 @@ validate() {
     "gemini/skills/salto/adapters/jira/jira.md"
     "gemini/skills/salto/adapters/netsuite/netsuite.md"
     "gemini/skills/salto/adapters/salesforce/salesforce.md"
+    "gemini/skills/salto/adapters/salesforce/cpq.md"
+    "gemini/skills/salto/adapters/salesforce/rlm.md"
     "gemini/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "gemini/skills/salto/adapters/zendesk/zendesk.md"
   )

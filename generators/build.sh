@@ -5,6 +5,7 @@
 # Emits:
 #   dist/claude/   — Claude Code plugin ({{SKILL_ROOT}} -> ${CLAUDE_PLUGIN_ROOT})
 #   dist/copilot/  — GitHub Copilot agent skill ({{SKILL_ROOT}} -> .)
+#   dist/gemini/   — Gemini CLI agent skill ({{SKILL_ROOT}} -> .)
 #
 # The ONLY content transform is substituting the {{SKILL_ROOT}} path token.
 # Everything else is mechanical copy + per-agent manifest generation.
@@ -148,6 +149,20 @@ build_copilot_plugin() {
   }' "$META" >"$ROOT/.github/plugin/marketplace.json"
 }
 
+# --- Gemini CLI agent skill -------------------------------------------------
+# Installable via `gemini skills install <this repo> --path dist/gemini/skills`
+# (Gemini copies the skill dir into ~/.gemini/skills/salto; no manifest needed).
+# Same fully self-contained layout as the Copilot skill: when Gemini activates
+# the skill it gives the model the skill's absolute directory, and the relative
+# paths resolve against it.
+build_gemini() {
+  local base='.' out="$DIST/gemini" skilldir
+  rm -rf "$out"
+  skilldir="$out/skills/salto"
+
+  emit_skill "$skilldir/SKILL.md" "$skilldir" "$base"
+}
+
 # --- validation -------------------------------------------------------------
 validate() {
   local problems=0 f
@@ -176,6 +191,11 @@ validate() {
     "copilot-plugin/skills/salto/references/salto-deploy.md"
     "copilot-plugin/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
     "copilot-plugin/skills/salto/adapters/zendesk/zendesk.md"
+    "gemini/skills/salto/SKILL.md"
+    "gemini/skills/salto/VERSION"
+    "gemini/skills/salto/references/salto-deploy.md"
+    "gemini/skills/salto/adapters/salesforce/cpq-to-rlm-migration.md"
+    "gemini/skills/salto/adapters/zendesk/zendesk.md"
   )
   [ -f "$ROOT/.claude-plugin/marketplace.json" ] || { echo "FAIL: missing .claude-plugin/marketplace.json" >&2; problems=1; }
   [ -f "$ROOT/.github/plugin/marketplace.json" ] || { echo "FAIL: missing .github/plugin/marketplace.json" >&2; problems=1; }
@@ -189,10 +209,12 @@ validate() {
 build_claude
 build_copilot
 build_copilot_plugin
+build_gemini
 validate
 
 echo "Built bundles:"
 echo "  claude         -> $DIST/claude ($(find "$DIST/claude" -type f | wc -l | tr -d ' ') files)"
 echo "  copilot        -> $DIST/copilot ($(find "$DIST/copilot" -type f | wc -l | tr -d ' ') files)"
 echo "  copilot-plugin -> $DIST/copilot-plugin ($(find "$DIST/copilot-plugin" -type f | wc -l | tr -d ' ') files)"
+echo "  gemini         -> $DIST/gemini ($(find "$DIST/gemini" -type f | wc -l | tr -d ' ') files)"
 echo "Validation: OK"

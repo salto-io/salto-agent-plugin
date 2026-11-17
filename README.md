@@ -77,6 +77,30 @@ Works with any Salto-supported application, including:
 
 The repo is public, so no GitHub credentials are needed to install it.
 
+## Install in Gemini CLI
+
+```
+gemini skills install https://github.com/salto-io/salto-agent-plugin --path dist/gemini/skills
+```
+
+This installs the `salto` skill for your user (all projects) in `~/.gemini/skills/salto`. Check it with `gemini skills list`.
+
+Use it the same way: `/salto "<request>"`, or ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
+
+To update, run the same install command again. Gemini CLI does not update skills automatically.
+
+**Deploy requests in Gemini CLI.** Gemini CLI limits the agent more than Claude Code does. For deploy requests, start it from your workspace's git root like this:
+
+```
+GIT_CONFIG_PARAMETERS="'credential.https://github.com.helper=!gh auth git-credential'" \
+  gemini --include-directories ..,"${TMPDIR:-/tmp}"
+```
+
+- `--include-directories` — `salto-cli` creates the change worktree next to your workspace folder and keeps temp files in your temp folder. Gemini CLI edits files only in folders you allow.
+- `GIT_CONFIG_PARAMETERS` — Gemini CLI turns off git credential helpers for the commands it runs, so `git push` over HTTPS fails ("could not read Username"). This lets git use your `gh` login. You don't need it if your workspace repo uses an SSH remote.
+
+Explore requests need neither.
+
 ## Required environment variables
 
 For all SaaS-touching skills:
@@ -85,7 +109,7 @@ For all SaaS-touching skills:
 export SALTO_API_TOKEN=<your-token>     # generate in the Salto UI: Settings → API Tokens
 ```
 
-Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code starts.
+Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code or Gemini CLI starts.
 
 ## Quick start
 

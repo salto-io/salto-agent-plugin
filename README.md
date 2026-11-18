@@ -87,7 +87,7 @@ This installs the `salto` skill for your user (all projects) in `~/.gemini/skill
 
 ### Start Gemini CLI for Salto
 
-Gemini CLI limits the agent more than Claude Code does. For deploy requests, `salto-cli` creates the change worktree next to your workspace folder and keeps temp files in `TMPDIR`. Gemini edits files only in folders you allow, and it reads allowed folders without asking. So:
+Gemini CLI limits the agent more than Claude Code does. For deploy requests, `salto-cli` creates the change worktree next to your workspace's git folder and keeps temp files in `TMPDIR`. Gemini edits files only in folders you allow, and it reads allowed folders without asking. So:
 
 1. Put the workspace (its git folder) in a parent folder that holds only your Salto workspaces, for example `~/salto/<workspace>`. Gemini can read everything in that parent folder, so never use your home folder (or any folder with other files) as the parent.
 2. Start Gemini inside the workspace (don't use `--workspace`). Allow only the parent folder, and keep temp files in it:
@@ -99,7 +99,9 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
    ```
 
    Gemini asks whether to trust `..`; choose Yes. If you start Gemini without these folders, the skill tells Gemini to stop and ask you to add the folder it needs with `/directory add <path>`.
-3. Pushing: Gemini CLI turns off git credential helpers for the commands it runs, so `git push` over HTTPS fails ("could not read Username").
+
+   Gemini reads the whole parent folder, so from time to time remove old change worktrees (`git worktree remove ../<workspace>-salto-...`) and old `../tmp/salto-state-*` folders.
+3. Git login: Gemini CLI turns off git credential helpers for the commands it runs, so git can't log in over HTTPS: pushing fails, and so does fetching a private repo ("could not read Username").
    - An SSH remote usually works when your key is loaded in `ssh-agent`. Gemini ignores `core.sshCommand` and can't ask for a key passphrase.
    - GitHub over HTTPS: start Gemini with your `gh` login turned back on for git. Copy the command exactly; the quotes stop your shell from changing the `!`:
 
@@ -108,9 +110,9 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
        TMPDIR="$(cd .. && pwd)/tmp" gemini --include-directories ..
      ```
 
-     This lets the git commands the agent runs in this session use your `gh` GitHub login. It needs `gh` installed and logged in (`gh auth login`). Don't combine it with `--yolo` or auto-approve, and don't answer "Allow for this session" (or "always") for `git` commands: a later `git credential fill` could then run without asking and put your GitHub token into the chat.
+     This lets the git commands the agent runs in this session use your `gh` GitHub login. It needs `gh` installed and logged in (`gh auth login`). Don't combine it with `--yolo` or auto-approve, and don't answer "Allow for this session" or "Allow for all future sessions" for `git` or `gh` commands: a later `git credential fill` or `gh auth token` could then run without asking and put your GitHub token into the chat.
    - Azure DevOps or other git hosts over HTTPS: deploys from Gemini CLI are not supported yet. Use an SSH remote.
-4. If your admin turned on `security.environmentVariableRedaction`, add `SALTO_API_TOKEN` (and `SSH_AUTH_SOCK` for SSH) to `security.environmentVariableRedaction.allowed` in your Gemini settings. Gemini still removes values that look like known secrets (for example JWTs or GitHub tokens); a Salto API token doesn't look like these, so allowing the name is enough.
+4. If `security.environmentVariableRedaction.enabled` is on in your Gemini settings (for example, set by your admin), Gemini CLI 0.68 removes `SALTO_API_TOKEN`, `SSH_AUTH_SOCK` and `GH_TOKEN` from the commands it runs, even when they are listed in `security.environmentVariableRedaction.allowed`. `salto-cli` then can't log in, and SSH pushes can't reach `ssh-agent`. So Salto doesn't work from Gemini CLI with redaction on; ask your admin to turn it off.
 
 Then use it the same way: `/salto "<request>"`, or ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
 

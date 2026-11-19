@@ -98,7 +98,7 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
    TMPDIR="$(cd .. && pwd)/tmp" gemini --include-directories ..
    ```
 
-   Gemini asks whether to trust `..`; choose Yes. If you start Gemini without these folders, the skill tells Gemini to stop and ask you to add the folder it needs with `/directory add <path>`.
+   Gemini asks whether to trust `..`; choose Yes. If you start Gemini without these folders, Gemini should stop and ask you to add the folder it needs with `/directory add <path>` (the skill tells it to). Weaker models sometimes try to get around this instead, for example by writing files with `python` or `cp`, or by editing your workspace folder directly. So don't approve file writes or shell commands that write files outside the change worktree.
 
    Gemini reads the whole parent folder, so from time to time remove old change worktrees (`git worktree remove ../<workspace>-salto-...`) and old `../tmp/salto-state-*` folders.
 3. Git login: Gemini CLI turns off git credential helpers for the commands it runs, so git can't log in over HTTPS: pushing fails, and so does fetching a private repo ("could not read Username").

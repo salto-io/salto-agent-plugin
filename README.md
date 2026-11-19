@@ -89,7 +89,7 @@ This installs the `salto` skill for your user (all projects) in `~/.gemini/skill
 
 Gemini CLI limits the agent more than Claude Code does. For deploy requests, `salto-cli` creates the change worktree next to your workspace's git folder and keeps temp files in `TMPDIR`. Gemini edits files only in folders you allow, and it reads allowed folders without asking. So:
 
-1. Put the workspace (its git folder) in a parent folder that holds only your Salto workspaces, for example `~/salto/<workspace>`. Gemini can read everything in that parent folder, so never use your home folder (or any folder with other files) as the parent.
+1. Put the workspace (its git folder) in a parent folder that holds only your Salto workspaces, for example `~/salto/<workspace>`. Gemini can read everything in that parent folder, so never use your home folder (or any folder with other files) as the parent. These steps assume the workspace folder is the root of its git repo (the usual Salto setup).
 2. Start Gemini inside the workspace (don't use `--workspace`). Allow only the parent folder, and keep temp files in it:
 
    ```
@@ -98,7 +98,7 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
    TMPDIR="$(cd .. && pwd)/tmp" gemini --include-directories ..
    ```
 
-   Gemini asks whether to trust `..`; choose Yes. If you start Gemini without these folders, Gemini should stop and ask you to add the folder it needs with `/directory add <path>` (the skill tells it to). Weaker models sometimes try to get around this instead, for example by writing files with `python` or `cp`, or by editing your workspace folder directly. So don't approve file writes or shell commands that write files outside the change worktree.
+   Gemini asks whether to trust `..`; choose Yes. If you start Gemini without these folders, Gemini should stop and ask you to add the folder it needs with `/directory add <path>` (the skill tells it to). Weaker models sometimes try to get around this instead, for example by writing files with `python` or `cp`, or by editing your workspace folder directly. So only approve writes inside the change worktree (`../<workspace>-salto-...`) and the temp folder (`../tmp`). Never approve edits in your workspace folder itself, or files written with `python`, `cp` or `echo`.
 
    Gemini reads the whole parent folder, so from time to time remove old change worktrees (`git worktree remove ../<workspace>-salto-...`) and old `../tmp/salto-state-*` folders.
 3. Git login: Gemini CLI turns off git credential helpers for the commands it runs, so git can't log in over HTTPS: pushing fails, and so does fetching a private repo ("could not read Username").
@@ -112,7 +112,8 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
 
      This lets the git commands the agent runs in this session use your `gh` GitHub login. It needs `gh` installed and logged in (`gh auth login`). Don't combine it with `--yolo` or auto-approve, and don't answer "Allow for this session" or "Allow for all future sessions" for `git` or `gh` commands: a later `git credential fill` or `gh auth token` could then run without asking and put your GitHub token into the chat.
    - Azure DevOps or other git hosts over HTTPS: deploys from Gemini CLI are not supported yet. Use an SSH remote.
-4. If `security.environmentVariableRedaction.enabled` is on in your Gemini settings (for example, set by your admin), Gemini CLI 0.68 removes `SALTO_API_TOKEN`, `SSH_AUTH_SOCK` and `GH_TOKEN` from the commands it runs, even when they are listed in `security.environmentVariableRedaction.allowed`. `salto-cli` then can't log in, and SSH pushes can't reach `ssh-agent`. So Salto doesn't work from Gemini CLI with redaction on; ask your admin to turn it off.
+4. If `security.environmentVariableRedaction.enabled` is on in your Gemini settings (for example, set by your admin), Gemini CLI 0.68 removes `SALTO_API_TOKEN`, `SSH_AUTH_SOCK` and `GH_TOKEN` from the commands it runs, even when they are listed in `security.environmentVariableRedaction.allowed`. `salto-cli` then can't log in, and SSH pushes can't reach `ssh-agent`. So Salto doesn't work from Gemini CLI with redaction on; ask your admin to turn it off. Gemini also turns this redaction on by itself when `GITHUB_SHA` is set or `SURFACE=Github` (for example in GitHub Actions).
+5. Model and approvals: for deploys, use the default model (`auto`) or a Pro model, not Flash-Lite. In our tests Flash-Lite sometimes ignored the skill's stop rules. Don't use `--yolo` or `--approval-mode auto_edit`, and treat starting without the folders above only as a fallback.
 
 Then use it the same way: `/salto "<request>"`, or ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
 

@@ -6,13 +6,18 @@ This file is loaded automatically by salto-deploy and salto-explore when the wor
 
 ## Element Types and NACL ID Pattern
 
-Every Jira element uses the pattern:
+An element is **declared** as `jira.<type_name> <element_name> { ... }` and **referenced** as:
 
 ```
 jira.<type_name>.instance.<element_name>
 ```
 
-`<element_name>` is derived from the element's name or key: lowercase, spaces → underscores, special characters stripped. For elements that have a stable Jira-side key (project keys like `PLAT`, custom field IDs like `customfield_10001`), Salto often uses the key directly to keep diff diffs stable across rename.
+`<element_name>` is the element's name, case kept. A name made only of letters, digits and `_` is used as-is (`Story`). Otherwise every other character is replaced by `_` and an `@` suffix lists one code per escaped character, underscores included: `s` space, `f` colon, `b` hyphen, `v` dot, `d` slash, `u` underscore. For example, `Engineering Review` becomes `Engineering_Review@s`. Two types differ:
+
+- **Status** ids are lowercased: `In Progress` → `jira.Status.instance.in_progress@s`.
+- **Custom field** ids are `<name>__<type>__c`, escaped as one string: `Risk Score` (type `…:float`) → `jira.Field.instance.Risk_Score__float__c@suuuu`. Salto doesn't use `customfield_10001` as the element id.
+
+When in doubt, copy the id from an existing fetched element rather than deriving it.
 
 ### Core element types
 
@@ -26,28 +31,28 @@ jira.<type_name>.instance.<element_name>
 | `IssueTypeScreenScheme`         | Mapping of issue type → screen scheme                                   |
 | `Screen`                        | Screen (which fields appear on a view)                                  |
 | `ScreenScheme`                  | Screen scheme (mapping of screen → operation: view/create/edit)         |
-| `Workflow`                      | Workflow definition (states + transitions)                              |
+| `WorkflowConfiguration`         | Workflow definition (statuses + transitions) — **Cloud**                |
+| `Workflow`                      | Workflow definition (statuses + transitions) — **Server / DC**          |
 | `WorkflowScheme`                | Mapping of issue type → workflow within a project                       |
 | `Status`                        | Workflow status (e.g. To Do, In Progress, Done)                         |
+| `StatusCategory`                | Status category (To Do, In Progress, Done) — referenced by `Status`     |
 | `Priority`                      | Priority value                                                          |
 | `Resolution`                    | Resolution value                                                        |
 | `Field`                         | Custom field (any type — see subtypes)                                  |
 | `FieldConfiguration`            | Field configuration (which fields are required / hidden per scheme)     |
 | `FieldConfigurationScheme`      | Mapping of issue type → field configuration                             |
-| `Permission`                    | Permission grant                                                        |
-| `PermissionScheme`              | Permission scheme                                                       |
+| `PermissionScheme`              | Permission scheme (holds the permission grants)                         |
 | `NotificationScheme`            | Notification scheme                                                     |
 | `SecurityScheme`                | Issue security scheme                                                   |
 | `SecurityLevel`                 | Security level inside a security scheme                                 |
-| `Role` / `ProjectRoleActor`     | Project role actor (who fills a role on a project)                      |
 | `Group`                         | User group                                                              |
 | `Filter`                        | Saved JQL filter                                                        |
 | `Dashboard`                     | Dashboard                                                               |
-| `Automation` / `AutomationRule` | Automation rule (Cloud only)                                            |
-| `Board` / `Sprint`              | Agile board / sprint (Cloud only)                                       |
+| `Automation`                    | Automation rule                                                         |
+| `Board`                         | Agile board                                                             |
 | `CustomFieldContext`            | Context defining which projects + issue types a custom field applies to |
-| `WebhookConfiguration`          | Webhook (server-side)                                                   |
-| `ApplicationLink`               | Application link (DC/Server)                                            |
+| `CustomFieldContextOption`      | Option of a select-list field, scoped to one `CustomFieldContext`       |
+| `Webhook`                       | Webhook                                                                 |
 
 ---
 
@@ -56,16 +61,18 @@ jira.<type_name>.instance.<element_name>
 ### Project
 
 ```nacl
-jira.Project.instance.platform_team {
+jira.Project Platform {
   key = "PLAT"
   name = "Platform"
   projectTypeKey = "software"
   projectTemplateKey = "com.pyxis.greenhopper.jira:gh-scrum-template"
-  lead = jira.User.instance.alice_admin
-  workflowScheme = jira.WorkflowScheme.instance.engineering_default
-  issueTypeScheme = jira.IssueTypeScheme.instance.engineering
-  permissionScheme = jira.PermissionScheme.instance.engineering
-  notificationScheme = jira.NotificationScheme.instance.engineering
+  leadAccountId = {
+    id = "5b10ac8d82e05b22cc7d4ef5"
+  }
+  workflowScheme = jira.WorkflowScheme.instance.Engineering_Default@s
+  issueTypeScheme = jira.IssueTypeScheme.instance.Engineering
+  permissionScheme = jira.PermissionScheme.instance.Engineering_Permissions@s
+  notificationScheme = jira.NotificationScheme.instance.Engineering
   description = "Platform team's project"
   url = "https://example.com/platform"
 }
@@ -74,46 +81,83 @@ jira.Project.instance.platform_team {
 ### Issue type
 
 ```nacl
-jira.IssueType.instance.story {
+jira.IssueType Story {
   name = "Story"
   description = "User-facing story"
-  iconUrl = "https://example.atlassian.net/.../story.png"
   hierarchyLevel = 0
-  avatarId = 10316
 }
 ```
 
-### Workflow
+### Workflow (Cloud: `WorkflowConfiguration`)
+
+Statuses are references to global `Status` elements. Transitions are a **map**, not a list, keyed `<name>__From__<from status>__<Type>` (the escaped form of `<name>::From: <from status>::<Type>`; initial transitions use `none`, global ones use `any status`).
 
 ```nacl
-jira.Workflow.instance.engineering_review {
+jira.WorkflowConfiguration Engineering_Review@s {
+  scope = {
+    type = "GLOBAL"
+  }
   name = "Engineering Review"
   description = "Workflow with mandatory engineering review step"
   statuses = [
-    { name = "To Do", category = "new" },
-    { name = "In Review", category = "indeterminate" },
-    { name = "Done", category = "done" },
-  ]
-  transitions = [
     {
+      statusReference = jira.Status.instance.to_do@s
+      name = "To Do"
+    },
+    {
+      statusReference = jira.Status.instance.in_review@s
+      name = "In Review"
+    },
+    {
+      statusReference = jira.Status.instance.done
+      name = "Done"
+    },
+  ]
+  transitions = {
+    Create__From__none__Initial@fffsff = {
+      type = "INITIAL"
+      toStatusReference = jira.Status.instance.to_do@s
+      name = "Create"
+    }
+    Start_review__From__To_Do__Directed@sfffssff = {
+      type = "DIRECTED"
+      toStatusReference = jira.Status.instance.in_review@s
+      links = [
+        {
+          fromStatusReference = jira.Status.instance.to_do@s
+        },
+      ]
       name = "Start review"
-      from = "To Do"
-      to = "In Review"
-    },
-    {
+    }
+    Complete__From__In_Review__Directed@fffssff = {
+      type = "DIRECTED"
+      toStatusReference = jira.Status.instance.done
+      links = [
+        {
+          fromStatusReference = jira.Status.instance.in_review@s
+        },
+      ]
       name = "Complete"
-      from = "In Review"
-      to = "Done"
-    },
-  ]
+    }
+  }
+}
+```
+
+**Server / DC** uses `jira.Workflow` with the same transition map but different field names: statuses are `{ id = jira.Status.instance.<status>, name = "..." }`, a transition's target is `to`, its sources are `from = [{ id = jira.Status.instance.<status> }]`, and `type` is lowercase (`"initial"`, `"global"`, and `"common"` or `"ordinary"` for directed transitions).
+
+A status's category belongs to the `Status` element, not the workflow:
+
+```nacl
+jira.Status in_review@s {
+  name = "In Review"
+  statusCategory = jira.StatusCategory.instance.In_Progress@s
 }
 ```
 
 ### Custom field
 
 ```nacl
-jira.Field.instance.customfield_10042 {
-  id = "customfield_10042"
+jira.Field Risk_Score__float__c@suuuu {
   name = "Risk Score"
   type = "com.atlassian.jira.plugin.system.customfieldtypes:float"
   description = "1.0 – 10.0 risk rating"
@@ -124,17 +168,17 @@ jira.Field.instance.customfield_10042 {
 ### Permission scheme
 
 ```nacl
-jira.PermissionScheme.instance.engineering {
+jira.PermissionScheme Engineering_Permissions@s {
   name = "Engineering Permissions"
   description = "Default permissions for engineering projects"
   permissions = [
     {
       permission = "ADMINISTER_PROJECTS"
-      holder = { type = "projectRole", parameter = jira.ProjectRole.instance.administrators }
+      holder = { type = "projectRole", parameter = jira.ProjectRole.instance.Administrators }
     },
     {
       permission = "EDIT_ISSUES"
-      holder = { type = "projectRole", parameter = jira.ProjectRole.instance.developers }
+      holder = { type = "projectRole", parameter = jira.ProjectRole.instance.Developers }
     },
   ]
 }
@@ -146,27 +190,27 @@ jira.PermissionScheme.instance.engineering {
 
 ### Adding a custom field
 
-1. Create `jira.Field.instance.customfield_<id>`. The numeric id can be left as `customfield_NEW` if Jira will auto-assign on deploy; Salto re-maps after fetch.
+1. Create `jira.Field <name>__<type>__c { ... }` (see the naming rules above). Don't set an `id`; Jira assigns the `customfield_<n>` id on deploy.
 2. Required: `name`, `type` (the full plugin-prefixed key, e.g. `com.atlassian.jira.plugin.system.customfieldtypes:textfield`).
 3. **A custom field is not visible anywhere until you also create a `CustomFieldContext`** binding it to the relevant projects + issue types. Without a context, the field exists but doesn't appear on any screen.
 4. If the field should be on existing screens, also update the appropriate `Screen` elements to include it.
-5. For select-list fields, define the options via the corresponding `CustomFieldContext` — options are scoped per-context, not field-global.
+5. For select-list fields, options are separate `jira.CustomFieldContextOption` elements, each with `value`, `disabled` and `_parent = [jira.CustomFieldContext.instance.<context>]`. Options are scoped per context, not per field.
 
 ### Adding a project
 
-1. Create `jira.Project.instance.<key_lower>`. The `key` field must match the projected Jira project key (uppercase, 2–10 chars).
+1. Create `jira.Project <project name> { ... }` (the element id comes from the project's name, not its key). The `key` field holds the Jira project key (uppercase, 2–10 chars).
 2. **Reference, don't inline, all schemes** — `workflowScheme`, `issueTypeScheme`, `permissionScheme`, `notificationScheme`, `fieldConfigurationScheme` should all be references to existing scheme elements. Creating a project that references not-yet-existing schemes makes Salto's planner unhappy.
-3. The project lead must be a real user reference; Jira rejects projects without a valid lead.
+3. The project lead is `leadAccountId = { id = "<accountId>" }` (Cloud account id; on Server / DC, the user key). Jira rejects projects without a valid lead.
 4. After create, the project shows up in subsequent fetches with auto-generated stuff (default board, default issue type screen scheme bindings). Don't try to predict these in your NACL — let the post-deployment fetch surface them.
 
 ### Modifying a workflow
 
 Workflows are the most fragile element type in Jira. Adding a status or transition typically requires:
 
-1. Modifying the `Workflow` itself.
+1. Modifying the workflow itself (`WorkflowConfiguration` on Cloud, `Workflow` on Server / DC).
 2. Updating the `Screen` for the transition (if it has a custom screen).
-3. Confirming the new status exists at the top level (`jira.Status.instance.<status_name>` — these are global, not per-workflow).
-4. The new status's `category` must be one of `"new"`, `"indeterminate"`, `"done"` — Jira's three valid status categories.
+3. Confirming the new status exists at the top level (`jira.Status.instance.<status_id>`, lowercased; statuses are global, not per-workflow).
+4. Setting the new status's category on the `Status` element: `statusCategory = jira.StatusCategory.instance.To_Do@s`, `In_Progress@s` or `Done`.
 
 The Jira backend is strict about workflow correctness. A workflow with an unreachable status or a transition to a non-existent status will be rejected.
 
@@ -189,10 +233,10 @@ Salto's planner may collapse these into a single planItem if you do them in one 
 
 ```nacl
 # Correct
-workflowScheme = jira.WorkflowScheme.instance.engineering_default
+workflowScheme = jira.WorkflowScheme.instance.Engineering_Default@s
 
 # Wrong — string lookup won't survive a rename
-workflowScheme = "engineering_default"
+workflowScheme = "Engineering Default"
 ```
 
 Custom field references inside automations or filters often live as string literals (`"customfield_10042"`) because the Jira API itself uses that format. That's acceptable when the target is a stable Jira-assigned identifier; just be aware those won't be tracked by Salto's reference graph.
@@ -201,7 +245,7 @@ Custom field references inside automations or filters often live as string liter
 
 ## Validation Pitfalls
 
-**Status category enum** — Jira allows exactly `"new"`, `"indeterminate"`, `"done"`. Anything else is rejected.
+**Status category** — a status belongs to To Do, In Progress or Done (Jira keys `new`, `indeterminate`, `done`). In NACL a `Status` references the `StatusCategory` element (`To_Do@s`, `In_Progress@s` or `Done`) rather than using these strings.
 
 **Workflow scheme draft vs. published** — Jira maintains a draft of any scheme that's been modified but not yet published to projects. Salto deploys to the published version directly; if a draft exists, the deploy may fail with "scheme has a draft". Discard the draft in the Jira UI before deploying.
 
@@ -211,9 +255,9 @@ Custom field references inside automations or filters often live as string liter
 
 **Permission grants for project roles vs. users** — `holder.type` must be one of `user`, `group`, `projectRole`, `applicationRole`, `reporter`, `currentAssignee`, etc. Mismatched holder types are a common deploy error.
 
-**Cloud vs. Server / DC differences** — automation rules (`AutomationRule`) are Cloud-only. Application links (`ApplicationLink`) are mostly Server/DC. If the source env is Cloud and target is Server (or vice versa), filter the diff carefully — most cross-deploy attempts fail at the type level.
+**Cloud vs. Server / DC differences** — workflows are `WorkflowConfiguration` on Cloud and `Workflow` on Server / DC, with different field names (see the Workflow example). If the source env is Cloud and target is Server (or vice versa), filter the diff carefully — most cross-deploy attempts fail at the type level.
 
-**Sprints and Boards are agile-only** — they require Jira Software (not just Jira Core). Don't expect them on a Service Desk-only env.
+**Boards are agile-only** — they require Jira Software (not just Jira Core). Don't expect them on a Service Desk-only env.
 
 ---
 

@@ -12,7 +12,7 @@ An element is **declared** as `jira.<type_name> <element_name> { ... }` and **re
 jira.<type_name>.instance.<element_name>
 ```
 
-`<element_name>` is the element's name, case kept. A name made only of letters, digits and `_` is used as-is (`Story`). Otherwise every other character is replaced by `_` and an `@` suffix lists one code per escaped character, underscores included: `s` space, `f` colon, `b` hyphen, `v` dot, `d` slash, `u` underscore. For example, `Engineering Review` becomes `Engineering_Review@s`. Two types differ:
+`<element_name>` is the element's name, case kept. A name made only of letters, digits and `_` is used as-is (`Story`). Otherwise every other character is replaced by `_` and an `@` suffix lists one code per escaped character, underscores included: `s` space, `f` colon, `b` hyphen, `v` dot, `d` slash, `u` underscore. When every escaped character is the same, the code appears only once. For example, `Engineering Review` becomes `Engineering_Review@s`, `Waiting for Support` becomes `Waiting_for_Support@s` (not `@ss`), and `Agile: Bug Workflow` becomes `Agile__Bug_Workflow@fss`. Two types differ:
 
 - **Status** ids are lowercased: `In Progress` → `jira.Status.instance.in_progress@s`.
 - **Custom field** ids are `<name>__<type>__c`, escaped as one string: `Risk Score` (type `…:float`) → `jira.Field.instance.Risk_Score__float__c@suuuu`. Salto doesn't use `customfield_10001` as the element id.
@@ -52,6 +52,7 @@ When in doubt, copy the id from an existing fetched element rather than deriving
 | `Board`                         | Agile board                                                             |
 | `CustomFieldContext`            | Context defining which projects + issue types a custom field applies to |
 | `CustomFieldContextOption`      | Option of a select-list field, scoped to one `CustomFieldContext`       |
+| `FieldContextOptionsOrder`      | Order of a context's options (must list every option)                   |
 | `Webhook`                       | Webhook                                                                 |
 
 ---
@@ -194,13 +195,13 @@ jira.PermissionScheme Engineering_Permissions@s {
 2. Required: `name`, `type` (the full plugin-prefixed key, e.g. `com.atlassian.jira.plugin.system.customfieldtypes:textfield`).
 3. **A custom field is not visible anywhere until you also create a `CustomFieldContext`** binding it to the relevant projects + issue types. Without a context, the field exists but doesn't appear on any screen.
 4. If the field should be on existing screens, also update the appropriate `Screen` elements to include it.
-5. For select-list fields, options are separate `jira.CustomFieldContextOption` elements, each with `value`, `disabled` and `_parent = [jira.CustomFieldContext.instance.<context>]`. Options are scoped per context, not per field.
+5. For select-list fields, options are separate `jira.CustomFieldContextOption` elements, each with `value`, `disabled` and `_parent = [jira.CustomFieldContext.instance.<context>]`. Options are scoped per context, not per field. Each context also has one `jira.FieldContextOptionsOrder` element (`_parent` = the context) whose `options` list must reference every option; otherwise Salto blocks the deploy.
 
 ### Adding a project
 
 1. Create `jira.Project <project name> { ... }` (the element id comes from the project's name, not its key). The `key` field holds the Jira project key (uppercase, 2–10 chars).
 2. **Reference, don't inline, all schemes** — `workflowScheme`, `issueTypeScheme`, `permissionScheme`, `notificationScheme`, `fieldConfigurationScheme` should all be references to existing scheme elements. Creating a project that references not-yet-existing schemes makes Salto's planner unhappy.
-3. The project lead is `leadAccountId = { id = "<accountId>" }` (Cloud account id; on Server / DC, the user key). Jira rejects projects without a valid lead.
+3. The project lead is `leadAccountId = { id = "<accountId>" }` (Cloud account id; on Server / DC, the username). Jira rejects projects without a valid lead.
 4. After create, the project shows up in subsequent fetches with auto-generated stuff (default board, default issue type screen scheme bindings). Don't try to predict these in your NACL — let the post-deployment fetch surface them.
 
 ### Modifying a workflow

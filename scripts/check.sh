@@ -24,8 +24,9 @@ for old in dist meta.json; do
   if [ -e "$old" ]; then fail "$old must not exist: skills/salto/ is the only copy of the skill (no build step)"; fi
 done
 
-# Codex CLI (0.153) reads these instead of the .claude-plugin/ files, with names and versions this script doesn't check.
-# A root plugin.json (OpenAI's newer "portable" manifest) is used only when it has an agent-plugins "$schema".
+# Codex CLI (0.153) can read these instead of the .claude-plugin/ files, with names and versions this script doesn't check.
+# A root plugin.json (OpenAI's newer "portable" manifest) is used only when it has an agent-plugins "$schema";
+# this check rejects any root plugin.json, so a later Codex version can't pick one up silently.
 for shadow in plugin.json .codex-plugin/plugin.json .agents/plugins/marketplace.json; do
   if [ -e "$shadow" ]; then fail "$shadow must not exist: Codex CLI can use it instead of .claude-plugin/ (see the comment above)"; fi
 done

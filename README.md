@@ -167,9 +167,9 @@ Codex asks you to approve each command that needs the network or writes the `.gi
 
 - `salto-cli deployment preflight`, `prepare-worktree`, `validate-local`, `ship`, `preview`, `list`, `show` or `create from-pull-request` (explore requests may ask for some of these too)
 - `gh auth status`
-- `git add`, `commit` or `push` in the `../<workspace>-salto-...` worktree
+- `git add` or `commit` in the `../<workspace>-salto-...` change worktree, and `git push` to `origin`, branch `salto/...`, from the change worktree
 - Azure DevOps remotes: `az repos` commands (the `az repos -h` check, and creating or finding the PR)
-- `acli jira ...`, the `jira` CLI or `az boards ...` commands that read or comment on your ticket, when you ask for ticket work (for example with `--ticket`)
+- `acli jira ...`, the `jira` CLI or `az boards ...` commands that read or comment on your ticket, when your request names a ticket (a key such as SALTO-1234, or `--ticket`)
 - CPQ→RLM migration requests only: `salto element list` and `salto deploy --preview`
 - at the end of a deploy, `rm -rf` of the skill's temp folder (`.../salto-state-...` in your temp folder)
 
@@ -219,7 +219,7 @@ If the skills detect a `salto-cli` version older than the minimum they require, 
 
 ## For maintainers
 
-- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI, Gemini CLI and Codex CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot and Codex read too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code and Codex, `.github/plugin/marketplace.json` for Copilot). Don't add a Codex-only manifest (`.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`): Codex would read it instead.
+- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI, Gemini CLI and Codex CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot and Codex read too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code and Codex, `.github/plugin/marketplace.json` for Copilot). Don't add a Codex manifest (`.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` or a root `plugin.json`): Codex can read it instead (`scripts/check.sh` fails on all three).
 - In the skill files, write paths to bundled files as `<SKILL_DIR>/...` (SKILL.md, Step 1 explains it). Don't use agent-specific tokens such as `${CLAUDE_PLUGIN_ROOT}`. Put Gemini-only guidance in `skills/salto/references/gemini-cli.md` and Codex-only guidance in `skills/salto/references/codex-cli.md`.
 - To release, change the version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.github/plugin/marketplace.json`, `gemini-extension.json` and `skills/salto/VERSION`, then run `./scripts/check.sh`. CI runs the same check, and on merge to `main` it publishes the zips to S3.
 

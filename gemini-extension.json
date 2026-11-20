@@ -1,5 +1,5 @@
 {
   "name": "salto-cli-skills",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Salto skill for Gemini CLI: explore and deploy changes to Salto NACL workspaces with salto-cli."
 }

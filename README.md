@@ -1,6 +1,6 @@
 # salto-cli-skills
 
-Agent skills for Claude Code, GitHub Copilot CLI and Gemini CLI that automate [Salto](https://www.salto.io) NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.
+Agent skills for Claude Code, GitHub Copilot CLI, Gemini CLI and OpenAI Codex CLI that automate [Salto](https://www.salto.io) NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.
 
 ## What this plugin gives you
 
@@ -141,6 +141,36 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
 
 Then use it like in Claude Code: `/salto "<request>"` with the skill-only install, or `/salto-cli-skills:salto "<request>"` with the extension (Gemini adds the extension name to the command). You can also ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
 
+## Install in Codex CLI
+
+```
+codex plugin marketplace add salto-io/salto-agent-plugin
+codex plugin add salto-cli-skills@salto-claude-plugin
+```
+
+Check it with `codex plugin list`. Codex updates the plugin to the latest commit on `main` by itself when it starts. To update now, run `codex plugin marketplace upgrade salto-claude-plugin`, then restart Codex.
+
+### Start Codex for Salto
+
+Start Codex inside the workspace folder (the root of its git repo, the usual Salto setup):
+
+```
+cd ~/path/to/your/salto-workspace
+codex
+```
+
+If Codex asks whether you trust the folder, choose Yes. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox` or `--sandbox danger-full-access` for Salto.
+
+Then ask: `$salto-cli-skills:salto <request>` (type `$` to pick the skill), or ask in plain words (for example, "use salto to list my Zendesk triggers").
+
+For deploy requests, Codex asks you to approve:
+
+- `salto-cli`, `gh` and the git commands that change the repo (`git add`, `commit`, `push`). They need the network or write the `.git` folder, so Codex runs them outside the sandbox. Approve them once ("Yes, proceed"). Don't choose "don't ask again" for `git` or `gh` commands.
+- The NACL edits. `salto-cli` puts the change worktree next to your workspace (`../<workspace>-salto-...`), outside the folder Codex may write. Approve edits only in that worktree, never in your workspace folder itself, and never files written with `python`, `cp` or `echo`.
+- Never approve `npx` or `npm` commands that install or run `salto-cli`: Salto doesn't publish it on npm, so anyone could publish a package with that name. If `salto-cli` is missing, the skill should stop and ask you.
+
+Codex passes your environment variables (including `SALTO_API_TOKEN`) to the commands it runs. If your Codex config filters them (`shell_environment_policy`), keep `SALTO_API_TOKEN`.
+
 ## Required environment variables
 
 For all SaaS-touching skills:
@@ -149,7 +179,7 @@ For all SaaS-touching skills:
 export SALTO_API_TOKEN=<your-token>     # generate in the Salto UI: Settings → API Tokens
 ```
 
-Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code, Copilot CLI or Gemini CLI starts.
+Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code, Copilot CLI, Gemini CLI or Codex CLI starts.
 
 ## Quick start
 
@@ -159,7 +189,7 @@ From inside a Salto workspace directory:
 /salto "add a Zendesk trigger named welcome_message that tags new tickets with 'welcome'"
 ```
 
-Or, from anywhere with `--workspace` (Claude Code and Copilot; in Gemini CLI, start inside the workspace, see [Start Gemini CLI for Salto](#start-gemini-cli-for-salto)):
+Or, from anywhere with `--workspace` (Claude Code and Copilot; in Gemini CLI and Codex CLI, start inside the workspace, see [Start Gemini CLI for Salto](#start-gemini-cli-for-salto) and [Start Codex for Salto](#start-codex-for-salto)):
 
 ```
 /salto "rename the Okta group admins to platform-admins" --workspace ~/path/to/your/salto-workspace
@@ -173,14 +203,14 @@ To inspect without changing anything (routed to explore internally):
 
 ## Updates
 
-Each install section above says how to update. Claude Code and Copilot CLI get a new copy only when we change the plugin's `version`. A Gemini extension installed from GitHub updates to every new commit on `main` (Gemini compares commits, not versions). The Gemini skill-only install changes only when you run the install command again. A running session keeps the skill it loaded at start, so restart the agent after an update.
+Each install section above says how to update. Claude Code and Copilot CLI get a new copy only when we change the plugin's `version`. A Gemini extension installed from GitHub updates to every new commit on `main` (Gemini compares commits, not versions). The Gemini skill-only install changes only when you run the install command again. Codex CLI updates to every new commit on `main` when it starts, or when you run `codex plugin marketplace upgrade salto-claude-plugin`. A running session keeps the skill it loaded at start, so restart the agent after an update.
 
 If the skills detect a `salto-cli` version older than the minimum they require, they'll refuse to run and tell you which version to upgrade to.
 
 ## For maintainers
 
-- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI and Gemini CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot reads too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code, `.github/plugin/marketplace.json` for Copilot).
-- In the skill files, write paths to bundled files as `<SKILL_DIR>/...` (SKILL.md, Step 1 explains it). Don't use agent-specific tokens such as `${CLAUDE_PLUGIN_ROOT}`. Put Gemini-only guidance in `skills/salto/references/gemini-cli.md`.
+- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI, Gemini CLI and Codex CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot and Codex read too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code and Codex, `.github/plugin/marketplace.json` for Copilot). Don't add a Codex-only manifest (`.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`): Codex would read it instead.
+- In the skill files, write paths to bundled files as `<SKILL_DIR>/...` (SKILL.md, Step 1 explains it). Don't use agent-specific tokens such as `${CLAUDE_PLUGIN_ROOT}`. Put Gemini-only guidance in `skills/salto/references/gemini-cli.md` and Codex-only guidance in `skills/salto/references/codex-cli.md`.
 - To release, change the version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.github/plugin/marketplace.json`, `gemini-extension.json` and `skills/salto/VERSION`, then run `./scripts/check.sh`. CI runs the same check, and on merge to `main` it publishes the zips to S3.
 
 ## Reporting issues

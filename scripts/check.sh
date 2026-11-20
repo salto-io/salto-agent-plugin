@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks the plugin files (run it before a release; CI runs it on every PR).
 #   - skills/salto/ is the only copy of the skill: no dist/ or meta.json (the old build).
-#   - The manifests keep the published names and point at the repo root.
+#   - The manifests keep the published names and point at the repo root. Codex CLI reads the
+#     .claude-plugin/ manifests too, so no Codex-only manifest may shadow them.
 #   - Every version matches .claude-plugin/plugin.json, the version source.
 #     To release, change "version" there and in the other files this script names.
 #   - The skill folder has its files, and every <SKILL_DIR>/... path it names exists.
@@ -23,6 +24,11 @@ for old in dist meta.json; do
   if [ -e "$old" ]; then fail "$old must not exist: skills/salto/ is the only copy of the skill (no build step)"; fi
 done
 
+# Codex CLI would read these before .claude-plugin/ (with names and versions this script doesn't check).
+for shadow in plugin.json .codex-plugin/plugin.json .agents/plugins/marketplace.json; do
+  if [ -e "$shadow" ]; then fail "$shadow must not exist: Codex CLI would read it instead of .claude-plugin/"; fi
+done
+
 version=$(jq -r .version .claude-plugin/plugin.json 2>/dev/null) || { fail ".claude-plugin/plugin.json is missing or not valid JSON"; version=""; }
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail ".claude-plugin/plugin.json: version '$version' is not x.y.z"
 
@@ -40,7 +46,7 @@ if [ ! -f skills/salto/VERSION ] || [ "$(cat skills/salto/VERSION)" != "$version
   fail "skills/salto/VERSION must exist and be '$version'"
 fi
 
-for f in SKILL.md references/salto-deploy.md references/salto-explore.md references/gemini-cli.md; do
+for f in SKILL.md references/salto-deploy.md references/salto-explore.md references/gemini-cli.md references/codex-cli.md; do
   [ -f "skills/salto/$f" ] || fail "missing skills/salto/$f"
 done
 

@@ -159,7 +159,7 @@ cd ~/path/to/your/salto-workspace
 codex
 ```
 
-If Codex asks whether you trust the folder, choose Yes. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox` or `--sandbox danger-full-access` for Salto.
+If Codex asks whether you trust the folder, choose Yes. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Keep these approvals: don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` or `--approve-for-me` for Salto. With `--ask-for-approval never` (and in `codex exec`) Codex can't ask you, so deploys stop at the first `salto-cli` command; explore questions still work.
 
 Then ask: `$salto-cli-skills:salto <request>` (type `$` to pick the skill), or ask in plain words (for example, "use salto to list my Zendesk triggers").
 

@@ -33,6 +33,7 @@ Describe the change (add, change, rename, delete, enable, disable, fix). The plu
 More:
 
 - **Continue an existing deployment** — `--deployment-id <id>` or `--branch-name <name>`.
+- **Promote a deployment** — "promote deployment abc123 to production". Creates a Promote deployment in the target environment from what was already deployed (no NACL edits, no PR). You review and apply it in the Salto UI.
 - **Ticket-driven work** — put a ticket in the request (Jira, Azure DevOps, and others). The plugin can read the task from the ticket, and comments back with the PR, deployment, and decisions you made.
 - **Focus on your change only** — old, unrelated errors in the workspace do not block your change.
 - **You stay in control** — the plugin never applies the deployment. You approve it in the Salto UI.

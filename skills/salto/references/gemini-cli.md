@@ -1,6 +1,6 @@
 # Gemini CLI notes (read only in Gemini CLI)
 
-SKILL.md tells Gemini CLI to read this file. Other agents don't need it. These notes add to SKILL.md and the workflow files, and they win where they differ.
+SKILL.md tells Gemini CLI to read this file first. Other agents don't need it. These notes add to SKILL.md and the workflow files, and they win where they differ.
 
 - `<SKILL_DIR>` is this skill's folder: the absolute path Gemini showed under `<available_resources>` when it activated the skill. Copy that path exactly and read every bundled file by its full path under it (file tools don't expand `~`). A relative path such as `references/salto-deploy.md` resolves against the project, not the skill.
 - `$ARGUMENTS` in the skill files means the user's request: the text sent with or after `/salto`, including flags such as `--workspace`, `--deployment-id` or `--branch-name`.

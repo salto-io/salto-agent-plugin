@@ -172,7 +172,7 @@ To inspect without changing anything (routed to explore internally):
 
 ## Updates
 
-Each install section above says how to update. You get a new version only when we change the plugin's `version`. A running session keeps the skill it loaded at start, so restart the agent after an update.
+Each install section above says how to update. Claude Code and Copilot CLI get a new copy only when we change the plugin's `version`. A Gemini extension installed from GitHub updates to every new commit on `main` (Gemini compares commits, not versions). The Gemini skill-only install changes only when you run the install command again. A running session keeps the skill it loaded at start, so restart the agent after an update.
 
 If the skills detect a `salto-cli` version older than the minimum they require, they'll refuse to run and tell you which version to upgrade to.
 

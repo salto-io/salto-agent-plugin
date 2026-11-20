@@ -12,7 +12,7 @@ An element is **declared** as `jira.<type_name> <element_name> { ... }` and **re
 jira.<type_name>.instance.<element_name>
 ```
 
-`<element_name>` is the element's name, case kept. A name made only of letters, digits and `_` is used as-is (`Story`). Otherwise every other character is replaced by `_` and an `@` suffix lists one code per escaped character, underscores included: `s` space, `f` colon, `b` hyphen, `v` dot, `d` slash, `u` underscore. When every escaped character is the same, the code appears only once. For example, `Engineering Review` becomes `Engineering_Review@s`, `Waiting for Support` becomes `Waiting_for_Support@s` (not `@ss`), and `Agile: Bug Workflow` becomes `Agile__Bug_Workflow@fss`. Two types differ:
+`<element_name>` is the element's name, case kept. A name made only of letters, digits and `_` is used as-is (`Story`). Otherwise every other character is replaced by `_` and an `@` suffix lists one code per escaped character, underscores included: `s` space, `f` colon, `b` hyphen, `v` dot, `d` slash, `u` underscore. When every escaped character is the same, the code appears only once. For example, `Engineering Review` becomes `Engineering_Review@s`, `Waiting for Support` becomes `Waiting_for_Support@s` (not `@ss`), and `Sales: Lead Workflow` becomes `Sales__Lead_Workflow@fss`. Two types differ:
 
 - **Status** ids are lowercased: `In Progress` → `jira.Status.instance.in_progress@s`.
 - **Custom field** ids are `<name>__<type>__c`, escaped as one string: `Risk Score` (type `…:float`) → `jira.Field.instance.Risk_Score__float__c@suuuu`. Salto doesn't use `customfield_10001` as the element id.

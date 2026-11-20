@@ -159,7 +159,7 @@ cd ~/path/to/your/salto-workspace
 codex
 ```
 
-If Codex asks whether you trust the folder, choose Yes, but only for your own workspace repo. Trusting a folder also loads its `.codex/` settings, which can change approvals, so first check that the repo has no `.codex/` folder you don't know. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Keep these approvals: don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` or `--approve-for-me` for Salto, don't set `sandbox_mode = "danger-full-access"`, `approval_policy = "never"` or `approvals_reviewer = "auto_review"` in `~/.codex/config.toml`, and don't pick Full Access in `/permissions`. With `--ask-for-approval never` (and in `codex exec`) Codex can't ask you, so deploys stop at the first `salto-cli` command; only questions answered from the workspace files still work.
+If Codex asks whether you trust the folder, choose Yes, but only for your own workspace repo. Trusting a folder also loads its `.codex/` settings, which can change approvals, so first check that the repo has no `.codex/` folder you don't know. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Keep these approvals: don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` or `--approve-for-me` for Salto, don't set `sandbox_mode = "danger-full-access"` or `approval_policy = "never"` in `~/.codex/config.toml`, keep `approvals_reviewer = "user"` (the default), and don't pick Full Access in `/permissions`. With `--ask-for-approval never` (and in `codex exec`) Codex can't ask you, so deploys stop at the first `salto-cli` command; only questions answered from the workspace files still work.
 
 Then ask: `$salto-cli-skills:salto <request>` (type `$` to pick the skill), or ask in plain words (for example, "use salto to list my Zendesk triggers").
 
@@ -167,11 +167,13 @@ Codex asks you to approve each command that needs the network or writes the `.gi
 
 - `salto-cli deployment preflight`, `prepare-worktree`, `validate-local`, `ship`, `preview`, `list`, `show` or `create from-pull-request` (explore requests may ask for some of these too)
 - `gh auth status`
-- `git add`, `commit` or `push` in the `../<workspace>-salto-...` worktree, and `git fetch` or `pull`
-- `acli` or `az` commands that read or comment on your ticket, when you ask for ticket work (for example with `--ticket`)
+- `git add`, `commit` or `push` in the `../<workspace>-salto-...` worktree
+- Azure DevOps remotes: `az repos` commands (the `az repos -h` check, and creating or finding the PR)
+- `acli jira ...`, the `jira` CLI or `az boards ...` commands that read or comment on your ticket, when you ask for ticket work (for example with `--ticket`)
+- CPQ→RLM migration requests only: `salto element list` and `salto deploy --preview`
 - at the end of a deploy, `rm -rf` of the skill's temp folder (`.../salto-state-...` in your temp folder)
 
-Decline anything else (for example `gh api`, `gh repo`, `git push --force`, or `rm` of any other folder) and tell Codex to stop. Never approve `npx` or `npm` commands that install or run `salto-cli`: Salto doesn't publish it on npm, so anyone could publish a package with that name. If `salto-cli` is missing, the skill should stop and ask you.
+Decline anything else (for example `gh api`, `gh repo`, `git push --force`, `git pull` in your workspace, or `rm` of any other folder) and tell Codex to stop. If you chose "don't ask again" in an earlier Codex session, check `~/.codex/rules/` for allow rules: Codex runs matching commands without asking. Never approve `npx` or `npm` commands that install or run `salto-cli`: Salto doesn't publish it on npm, so anyone could publish a package with that name. If `salto-cli` is missing, the skill should stop and ask you.
 
 For deploy requests, Codex also asks you to approve the NACL edits. `salto-cli` puts the change worktree next to your workspace (`../<workspace>-salto-...`), outside the folder Codex may write. Approve edits only in that worktree, and never files written with `python`, `cp` or `echo`. Codex doesn't ask before it edits files in your workspace folder itself. The skill must not edit there; if you see it do that, stop it (Esc).
 

@@ -1,5 +1,3 @@
-dist/*
-!dist/claude/
-!dist/copilot-plugin/
+dist/
 node_modules/
 .DS_Store

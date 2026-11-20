@@ -1,10 +1,11 @@
 name: Build & Publish agent skills
 
-# Builds the per-agent skill bundles from skills/salto/ (via generators/build.sh) and,
-# on merge to main, publishes them as zips to S3.
+# Checks the plugin (scripts/check.sh) and, on merge to main, publishes zips of it to S3.
 #
-# Adding a new agent later requires NO change here: the build script emits one
-# directory per agent under dist/, and this workflow zips/publishes whatever it finds.
+# The repo root is the plugin for every agent (Claude Code, GitHub Copilot CLI, Gemini CLI),
+# and skills/salto/ is the one skill folder. The zips keep the names and the skill paths of
+# the old per-agent bundles: claude.zip, copilot-plugin.zip and gemini.zip hold the plugin
+# manifests + skills/salto/; copilot.zip holds .github/skills/salto/ (repo-level Copilot skill).
 #
 # Publishes to s3://<S3_BUCKET>/<S3_PREFIX>/<version>/ and s3://<S3_BUCKET>/<S3_PREFIX>/latest/.
 #
@@ -36,21 +37,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build bundles
-        run: ./generators/build.sh
+      - name: Check plugin files
+        run: ./scripts/check.sh
 
       - name: Package per-agent zips + manifest
         run: |
           set -euo pipefail
-          mkdir -p out
-          VERSION=$(jq -r .version meta.json)
-          AGENTS=()
-          for d in dist/*/; do
-            agent=$(basename "$d")
-            AGENTS+=("$agent")
-            ( cd "$d" && zip -qr "$GITHUB_WORKSPACE/out/${agent}.zip" . )
-            echo "packaged ${agent}.zip"
+          VERSION=$(jq -r .version .claude-plugin/plugin.json)
+          stage=$(mktemp -d)
+          mkdir -p out "$stage/plugin" "$stage/copilot/.github/skills"
+          cp -R .claude-plugin gemini-extension.json skills "$stage/plugin/"
+          cp -R skills/salto "$stage/copilot/.github/skills/salto"
+          for agent in claude copilot-plugin gemini; do
+            ( cd "$stage/plugin" && zip -qr "$GITHUB_WORKSPACE/out/${agent}.zip" . )
           done
+          ( cd "$stage/copilot" && zip -qr "$GITHUB_WORKSPACE/out/copilot.zip" . )
+          AGENTS=(claude copilot-plugin copilot gemini)
           printf '%s\n' "${AGENTS[@]}" | jq -R . | jq -s \
             --arg version "$VERSION" \
             --arg commit "$GITHUB_SHA" \

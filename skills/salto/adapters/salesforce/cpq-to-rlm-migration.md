@@ -12,14 +12,14 @@ Migrating Salesforce **CPQ (SBQQ)** to **RLM / Revenue Cloud Advanced (RCA)** is
 Therefore this workflow:
 - **Reads the CPQ source workspace read-only.** Never `salto fetch`/`deploy` against the source.
 - **Surfaces every lossy/ambiguous decision and every gap for human review** before generating anything, and again at the end. Gaps are never silently dropped.
-- **Generates RLM NaCL into the target workspace, runs a reviewer subagent, then a preview**, and **stops at a human gate**. It does **not** run a real (non-preview) deploy — the human approves the apply, which then goes through the standard `references/salto-deploy.md` workflow.
+- **Generates RLM NaCL into the target workspace, runs a reviewer subagent, then a preview**, and **stops at a human gate**. It does **not** run a real (non-preview) deploy — the human approves the apply, which then goes through the standard `<SKILL_DIR>/references/salto-deploy.md` workflow.
 - **Stops to ask the user whenever a faithful rebuild needs a decision it cannot derive from the data — even in "auto" / non-interactive mode.** See the Clarification Gate below. Never fabricate selling models, terms, prices, or rule behavior to keep going.
 
 ## Step 0 — Load adapter knowledge
 
-Read both, using `{{SKILL_ROOT}}`:
-- `{{SKILL_ROOT}}/adapters/salesforce/cpq.md` — source semantics (SBQQ/sbaa record shapes, fields, deploy quirks).
-- `{{SKILL_ROOT}}/adapters/salesforce/rlm.md` — target semantics (RLM objects, saltoID Name/Code keys, exact field API names, Draft-status quirk). **`rlm.md` is the source of truth for exact RLM field names** — this file maps at the object/concept level.
+Read both by their full path (`<SKILL_DIR>` is this skill's folder; see SKILL.md, Step 1):
+- `<SKILL_DIR>/adapters/salesforce/cpq.md` — source semantics (SBQQ/sbaa record shapes, fields, deploy quirks).
+- `<SKILL_DIR>/adapters/salesforce/rlm.md` — target semantics (RLM objects, saltoID Name/Code keys, exact field API names, Draft-status quirk). **`rlm.md` is the source of truth for exact RLM field names** — this file maps at the object/concept level.
 
 ---
 
@@ -54,7 +54,7 @@ When you stop, present it as: the **list of triggered areas/objects (with counts
 
 ## The CPQ → RLM mapping
 
-Tags: ✅ clean · ⚠️ lossy / judgment call · ❌ no target (gap → manual). For exact RLM field API names, defer to `adapters/salesforce/rlm.md`.
+Tags: ✅ clean · ⚠️ lossy / judgment call · ❌ no target (gap → manual). For exact RLM field API names, defer to `<SKILL_DIR>/adapters/salesforce/rlm.md`.
 
 ### Area A — Catalog & bundles
 | CPQ source | RLM target | Tag | Notes |
@@ -112,7 +112,7 @@ Tags: ✅ clean · ⚠️ lossy / judgment call · ❌ no target (gap → manual
 - Present the plan and **wait for human approval before generating any NaCL.**
 
 ### Phase 3 — Generate RLM NaCL into the target workspace
-- Write RLM records under the target `salesforce/Records/<Type>/`, following `adapters/salesforce/rlm.md` for exact field names and the conventions in `salesforce.md`/`cpq.md` (reference syntax, `_alias`).
+- Write RLM records under the target `salesforce/Records/<Type>/`, following `<SKILL_DIR>/adapters/salesforce/rlm.md` for exact field names and the conventions in `salesforce.md`/`cpq.md` (reference syntax, `_alias`).
 - **Honor saltoID keys:** AttributeCategory/AttributeDefinition by **Name**; AttributePicklist/ProductClassification/UnitOfMeasureClass by **Code**. Invented keys must be **deterministic** (derive from CPQ `ProductCode`/`Name`) so re-runs are idempotent — record the scheme in the plan.
 - **Honor dependency order** (emit so references resolve): UnitOfMeasureClass→UnitOfMeasure · AttributeDefinition / AttributePicklist(+Value) / AttributeCategory(+CategoryAttribute) · ProductClassification(+Attr) / ProductRelationshipType · ProductAttributeDefinition / ProductSellingModel · ProductComponentGroup→ProductRelatedComponent · RateCard→RateCardEntry→PriceBookRateCard / PriceAdjustmentSchedule→PriceAdjustmentTier / AttributeBasedAdjRule→AttributeAdjustmentCondition→AttributeBasedAdjustment / BundleBasedAdjustment · ObjectStateDefinition→Value/Transition/Action / ProductQualification·Disqualification / ProductConfigurationFlow.
 - **Honor deploy-time quirks** (the adapter handles them; shape the data to cooperate): `UnitOfMeasure`/`UnitOfMeasureClass` get deployed `Status='Draft'` then reverted — generated records carry the intended final Status and a two-step deploy is expected; `ObjectStateDefinition` reference fields must point to already-emitted state values.
@@ -122,7 +122,7 @@ Tags: ✅ clean · ⚠️ lossy / judgment call · ❌ no target (gap → manual
 - Fix findings and re-run the reviewer until clean.
 
 ### Phase 5 — Preview (delegated)
-- Hand the generated changes to the deploy workflow: read `{{SKILL_ROOT}}/references/salto-deploy.md` and run its **preview** (`salto deploy --preview` / `deployment preview`) against the target. Loop back to Phase 3 on changeErrors (bounded iterations).
+- Hand the generated changes to the deploy workflow: read `<SKILL_DIR>/references/salto-deploy.md` and run its **preview** (`salto deploy --preview` / `deployment preview`) against the target. Loop back to Phase 3 on changeErrors (bounded iterations).
 
 ### Phase 6 — Human gate (hard stop)
 - Present: the approved mapping, the generated-NaCL summary, the reviewer verdict, the preview plan, and the explicit gaps/manual list.

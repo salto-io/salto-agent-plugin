@@ -23,10 +23,12 @@ The single Salto entry point. This skill is a thin router. Based on your request
 
 ## Step 1: Locate skill files
 
-This skill's workflow and adapter files are bundled alongside it. Load any sibling file by its path under `{{SKILL_ROOT}}`:
+This skill's workflow and adapter files live in this skill's folder: the folder that holds this SKILL.md. Your agent shows that folder's full path when it loads the skill (for example "Base directory for this skill: ..." in Claude Code, or the skill's folder under `<available_resources>` in Gemini CLI). In this skill's files, `<SKILL_DIR>` means that full path. Read every bundled file by its full path under `<SKILL_DIR>`. A bare relative path such as `references/salto-deploy.md` resolves against the user's project, not this folder.
 
-- Reference workflows: `{{SKILL_ROOT}}/references/salto-deploy.md`, `{{SKILL_ROOT}}/references/salto-explore.md`
-- Adapter knowledge lives in a **per-adapter directory**: `{{SKILL_ROOT}}/adapters/<adapter>/<adapter>.md` (e.g. `adapters/zendesk/zendesk.md`, `adapters/netsuite/netsuite.md`, `adapters/salesforce/salesforce.md`).
+- Reference workflows: `<SKILL_DIR>/references/salto-deploy.md`, `<SKILL_DIR>/references/salto-explore.md`
+- Adapter knowledge lives in a **per-adapter directory**: `<SKILL_DIR>/adapters/<adapter>/<adapter>.md` (e.g. `<SKILL_DIR>/adapters/zendesk/zendesk.md`, `<SKILL_DIR>/adapters/netsuite/netsuite.md`, `<SKILL_DIR>/adapters/salesforce/salesforce.md`).
+
+**Gemini CLI only:** if you are Gemini CLI, read `<SKILL_DIR>/references/gemini-cli.md` now, before Step 2, and follow it. Other agents: skip that file.
 
 No discovery needed.
 
@@ -34,17 +36,17 @@ No discovery needed.
 
 The `salesforce` adapter directory holds extra files beyond `salesforce.md`:
 
-- `{{SKILL_ROOT}}/adapters/salesforce/cpq.md` — CPQ (SBQQ/sbaa) record knowledge.
-- `{{SKILL_ROOT}}/adapters/salesforce/rlm.md` — RLM record knowledge.
-- `{{SKILL_ROOT}}/adapters/salesforce/cpq-to-rlm-migration.md` — the CPQ→RLM migration workflow (loaded by the MIGRATE route, below).
+- `<SKILL_DIR>/adapters/salesforce/cpq.md` — CPQ (SBQQ/sbaa) record knowledge.
+- `<SKILL_DIR>/adapters/salesforce/rlm.md` — RLM record knowledge.
+- `<SKILL_DIR>/adapters/salesforce/cpq-to-rlm-migration.md` — the CPQ→RLM migration workflow (loaded by the MIGRATE route, below).
 
 > [!IMPORTANT]
 > **RLM is now called RCA (Revenue Cloud Advanced).** Salesforce renamed the product. In **our code** (and therefore in the NACL object names, the adapter config, and the `rlm.md` filename) it is still **RLM** — but when talking to users, "RLM", "RCA", and "Revenue Cloud Advanced" all mean the same thing. Treat user mentions of RCA / Revenue Cloud Advanced as RLM.
 
 CPQ and RLM are **flavors of the `salesforce` adapter**, distinguished by the workspace's `salesforce` **data** config (`fetch.data.includeObjects` in `salto.config/adapters/salesforce/salesforce.nacl`). Whenever a workflow loads `adapters/salesforce/salesforce.md` for a Salesforce workspace, also load the matching sub-adapter file:
 
-- `includeObjects` contains `SBQQ__` or `sbaa__` → additionally load `{{SKILL_ROOT}}/adapters/salesforce/cpq.md` (CPQ).
-- `includeObjects` contains RLM objects (e.g. `ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`) → additionally load `{{SKILL_ROOT}}/adapters/salesforce/rlm.md` (RLM/RCA).
+- `includeObjects` contains `SBQQ__` or `sbaa__` → additionally load `<SKILL_DIR>/adapters/salesforce/cpq.md` (CPQ).
+- `includeObjects` contains RLM objects (e.g. `ProductClassification`, `AttributeDefinition`, `RateCard`, `ProductSellingModel`) → additionally load `<SKILL_DIR>/adapters/salesforce/rlm.md` (RLM/RCA).
 
 ---
 
@@ -87,19 +89,19 @@ Keywords that signal EXPLORE: `what`, `show`, `list`, `which`, `how many`, `expl
 **If MIGRATE:**
 
 1. Print: `Routing to cpq-to-rlm-migration workflow...`
-2. Read `{{SKILL_ROOT}}/adapters/salesforce/cpq-to-rlm-migration.md` into context.
+2. Read `<SKILL_DIR>/adapters/salesforce/cpq-to-rlm-migration.md` into context.
 3. Execute the instructions with the full original `$ARGUMENTS` unchanged. That workflow loads both `adapters/salesforce/cpq.md` and `adapters/salesforce/rlm.md`, reads the CPQ source read-only, **stops to ask the user about lossy/ambiguous areas it can't decide from the data (a Clarification Gate — mandatory even in auto mode; never fabricate selling models/terms/prices/rule behavior)**, and stops again at a human gate before any real deploy.
 
 **If DEPLOY:**
 
 1. Print: `Routing to salto-deploy workflow...`
-2. Read `{{SKILL_ROOT}}/references/salto-deploy.md` into context.
-3. Execute the instructions with the full original `$ARGUMENTS` unchanged. The reference file uses `{{SKILL_ROOT}}` for paths to adapter knowledge (e.g. `{{SKILL_ROOT}}/adapters/zendesk/zendesk.md`).
+2. Read `<SKILL_DIR>/references/salto-deploy.md` into context.
+3. Execute the instructions with the full original `$ARGUMENTS` unchanged. The reference file uses `<SKILL_DIR>` for paths to adapter knowledge (e.g. `<SKILL_DIR>/adapters/zendesk/zendesk.md`).
 
 **If EXPLORE:**
 
 1. Print: `Routing to salto-explore workflow...`
-2. Read `{{SKILL_ROOT}}/references/salto-explore.md` into context.
+2. Read `<SKILL_DIR>/references/salto-explore.md` into context.
 3. Execute the instructions with the full original `$ARGUMENTS` unchanged.
 
 **If AMBIGUOUS:**

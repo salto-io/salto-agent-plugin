@@ -166,6 +166,7 @@ Then ask: `$salto-cli-skills:salto <request>` (type `$` to pick the skill), or a
 Codex asks you to approve each command that needs the network or writes the `.git` folder, because it runs them outside the sandbox, with full network and disk access. Read each command before you approve it, and approve with "Yes, proceed" (this time only). Never choose "don't ask again". Expect only:
 
 - `salto-cli deployment preflight`, `prepare-worktree`, `validate-local`, `ship`, `preview`, `list`, `show` or `create from-pull-request` (explore requests may ask for some of these too)
+- promote requests: `salto-cli deployment env-info` and `create from-deployments`, plus `preflight`, `list`, `show` and `preview`
 - `gh auth status`
 - `git add` or `commit` in the `../<workspace>-salto-...` change worktree, and `git push` to `origin`, branch `salto/...`, from the change worktree
 - Azure DevOps remotes: `az repos` commands (the `az repos -h` check, and creating or finding the PR)

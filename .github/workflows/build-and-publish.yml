@@ -2,7 +2,7 @@ name: Build & Publish agent skills
 
 # Checks the plugin (scripts/check.sh) and, on merge to main, publishes zips of it to S3.
 #
-# The repo root is the plugin for every agent (Claude Code, GitHub Copilot CLI, Gemini CLI),
+# The repo root is the plugin for every agent (Claude Code, GitHub Copilot CLI, Gemini CLI, Codex CLI),
 # and skills/salto/ is the one skill folder. The zips keep the names and the skill paths of
 # the old per-agent bundles: claude.zip, copilot-plugin.zip and gemini.zip hold the plugin
 # manifests + skills/salto/; copilot.zip holds .github/skills/salto/ (repo-level Copilot skill).

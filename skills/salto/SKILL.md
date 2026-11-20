@@ -7,7 +7,7 @@ description: Single entry point for all Salto workflows. Type a natural-language
 
 **Gemini CLI only (other agents, such as Claude Code, GitHub Copilot CLI and Codex CLI: skip this paragraph and that file):** you are Gemini CLI if this skill was loaded by `activate_skill` and its result said "Resources loaded from `<path>`" or listed `<available_resources>`. Then, before anything else, read `<path>/references/gemini-cli.md` by its full path and follow it.
 
-**Codex CLI only (other agents, such as Claude Code, GitHub Copilot CLI and Gemini CLI: skip this paragraph and that file):** you are Codex CLI if this skill came to you in a `<skill>` block with `<name>` and `<path>` tags, or from a skills list with a "Skill roots" table. Then, before anything else, read `<SKILL_DIR>/references/codex-cli.md` by its full path and follow it (`<SKILL_DIR>` is the folder of this SKILL.md; see Step 1).
+**Codex CLI only (other agents, such as Claude Code, GitHub Copilot CLI and Gemini CLI: skip this paragraph and that file):** you are Codex CLI if this skill came to you in a `<skill>` block with `<name>` and `<path>` tags (`<path>`, not `<location>`: other agents list skills with `<location>`, and that is not Codex), or from a skills list with a "Skill roots" table. Then, before anything else, read `<SKILL_DIR>/references/codex-cli.md` by its full path and follow it (`<SKILL_DIR>` is the folder of this SKILL.md; see Step 1).
 
 > [!NOTE]
 >
@@ -27,7 +27,7 @@ The single Salto entry point. This skill is a thin router. Based on your request
 
 ## Step 1: Locate skill files
 
-This skill's workflow and adapter files live in this skill's folder: the folder that holds this SKILL.md. Your agent shows that folder's full path when it loads the skill (for example "Base directory for this skill: ..." in Claude Code and GitHub Copilot CLI, the skill's folder under `<available_resources>` in Gemini CLI, or the full path of this SKILL.md in Codex CLI). In this skill's files, `<SKILL_DIR>` means that full path. Read every bundled file by its full path under `<SKILL_DIR>`. A bare relative path such as `references/salto-deploy.md` resolves against the user's project, not this folder.
+This skill's workflow and adapter files live in this skill's folder: the folder that holds this SKILL.md. Your agent shows that folder's full path when it loads the skill (for example "Base directory for this skill: ..." in Claude Code and GitHub Copilot CLI, the skill's folder under `<available_resources>` in Gemini CLI, or this SKILL.md's full path in Codex CLI, without `/SKILL.md`). In this skill's files, `<SKILL_DIR>` means that full path. Read every bundled file by its full path under `<SKILL_DIR>`. A bare relative path such as `references/salto-deploy.md` resolves against the user's project, not this folder.
 
 - Reference workflows: `<SKILL_DIR>/references/salto-deploy.md`, `<SKILL_DIR>/references/salto-explore.md`
 - Adapter knowledge lives in a **per-adapter directory**: `<SKILL_DIR>/adapters/<adapter>/<adapter>.md` (e.g. `<SKILL_DIR>/adapters/zendesk/zendesk.md`, `<SKILL_DIR>/adapters/netsuite/netsuite.md`, `<SKILL_DIR>/adapters/salesforce/salesforce.md`).

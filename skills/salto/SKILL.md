@@ -23,7 +23,7 @@ The single Salto entry point. This skill is a thin router. Based on your request
 
 ## Step 1: Locate skill files
 
-This skill's workflow and adapter files live in this skill's folder: the folder that holds this SKILL.md. Your agent shows that folder's full path when it loads the skill (for example "Base directory for this skill: ..." in Claude Code, or the skill's folder under `<available_resources>` in Gemini CLI). In this skill's files, `<SKILL_DIR>` means that full path. Read every bundled file by its full path under `<SKILL_DIR>`. A bare relative path such as `references/salto-deploy.md` resolves against the user's project, not this folder.
+This skill's workflow and adapter files live in this skill's folder: the folder that holds this SKILL.md. Your agent shows that folder's full path when it loads the skill (for example "Base directory for this skill: ..." in Claude Code and GitHub Copilot CLI, or the skill's folder under `<available_resources>` in Gemini CLI). In this skill's files, `<SKILL_DIR>` means that full path. Read every bundled file by its full path under `<SKILL_DIR>`. A bare relative path such as `references/salto-deploy.md` resolves against the user's project, not this folder.
 
 - Reference workflows: `<SKILL_DIR>/references/salto-deploy.md`, `<SKILL_DIR>/references/salto-explore.md`
 - Adapter knowledge lives in a **per-adapter directory**: `<SKILL_DIR>/adapters/<adapter>/<adapter>.md` (e.g. `<SKILL_DIR>/adapters/zendesk/zendesk.md`, `<SKILL_DIR>/adapters/netsuite/netsuite.md`, `<SKILL_DIR>/adapters/salesforce/salesforce.md`).

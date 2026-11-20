@@ -1,6 +1,6 @@
 # salto-cli-skills
 
-Claude Code skills for automating [Salto](https://www.salto.io) NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.
+Agent skills for Claude Code, GitHub Copilot CLI and Gemini CLI that automate [Salto](https://www.salto.io) NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.
 
 ## What this plugin gives you
 
@@ -77,10 +77,33 @@ Works with any Salto-supported application, including:
 
 The repo is public, so no GitHub credentials are needed to install it.
 
-## Install in Gemini CLI
+To update, run `claude plugin marketplace update salto-claude-plugin` and then `claude plugin update salto-cli-skills@salto-claude-plugin`, and restart Claude Code. Or turn on auto-update for the `salto-claude-plugin` marketplace in `/plugin` (Marketplaces tab).
+
+## Install in GitHub Copilot CLI
 
 ```
-gemini skills install https://github.com/salto-io/salto-agent-plugin --path dist/gemini/skills
+copilot plugin marketplace add salto-io/salto-agent-plugin
+copilot plugin install salto-cli-skills@salto-claude-plugin
+```
+
+To update, run `copilot plugin update salto-cli-skills`.
+
+## Install in Gemini CLI
+
+Choose one of these two options, not both (each one adds a `salto` skill).
+
+**Option 1: extension (can update itself)**
+
+```
+gemini extensions install https://github.com/salto-io/salto-agent-plugin --auto-update
+```
+
+Gemini asks you to confirm. Check it with `gemini extensions list`. `--auto-update` turns on Gemini's automatic updates for this extension. To update now, run `gemini extensions update salto-cli-skills` (Gemini asks you to confirm), then restart Gemini.
+
+**Option 2: skill only**
+
+```
+gemini skills install https://github.com/salto-io/salto-agent-plugin --path skills
 ```
 
 This installs the `salto` skill for your user (all projects) in `~/.gemini/skills/salto`. Check it with `gemini skills list`. To update, run the same install command again. Gemini CLI does not update skills automatically.
@@ -115,7 +138,7 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
 4. If `security.environmentVariableRedaction.enabled` is on in your Gemini settings (for example, set by your admin), Gemini CLI 0.68 removes `SALTO_API_TOKEN`, `SSH_AUTH_SOCK` and `GH_TOKEN` from the commands it runs, even when they are listed in `security.environmentVariableRedaction.allowed`. `salto-cli` then can't log in, and SSH pushes can't reach `ssh-agent`. So Salto doesn't work from Gemini CLI with redaction on; ask your admin to turn it off. Gemini also turns this redaction on by itself when `GITHUB_SHA` is set or `SURFACE=Github` (for example in GitHub Actions).
 5. Model and approvals: for deploys, use the default model (`auto`) or a Pro model (Pro needs a paid API key; free-tier keys get 429 errors), not Flash-Lite. In our tests Flash-Lite sometimes ignored the skill's stop rules. Don't use `--yolo` or `--approval-mode auto_edit`, and treat starting without the folders above only as a fallback.
 
-Then use it the same way: `/salto "<request>"`, or ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
+Then use it like in Claude Code: `/salto "<request>"` with the skill-only install, or `/salto-cli-skills:salto "<request>"` with the extension (Gemini adds the extension name to the command). You can also ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
 
 ## Required environment variables
 
@@ -125,7 +148,7 @@ For all SaaS-touching skills:
 export SALTO_API_TOKEN=<your-token>     # generate in the Salto UI: Settings → API Tokens
 ```
 
-Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code or Gemini CLI starts.
+Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code, Copilot CLI or Gemini CLI starts.
 
 ## Quick start
 
@@ -149,11 +172,15 @@ To inspect without changing anything (routed to explore internally):
 
 ## Updates
 
-Claude Code re-fetches `marketplace.json` from this repo on every session start. When we publish a new version (bump `version` in `plugin.json` + tag), your **next** Claude Code session automatically uses the new skill — no `/plugin reinstall` needed.
-
-A running session keeps the version it loaded at startup. To force-pick-up an update mid-day, restart Claude Code.
+Each install section above says how to update. You get a new version only when we change the plugin's `version`. A running session keeps the skill it loaded at start, so restart the agent after an update.
 
 If the skills detect a `salto-cli` version older than the minimum they require, they'll refuse to run and tell you which version to upgrade to.
+
+## For maintainers
+
+- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI and Gemini CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot reads too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code, `.github/plugin/marketplace.json` for Copilot).
+- In the skill files, write paths to bundled files as `<SKILL_DIR>/...` (SKILL.md, Step 1 explains it). Don't use agent-specific tokens such as `${CLAUDE_PLUGIN_ROOT}`. Put Gemini-only guidance in `skills/salto/references/gemini-cli.md`.
+- To release, change the version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.github/plugin/marketplace.json`, `gemini-extension.json` and `skills/salto/VERSION`, then run `./scripts/check.sh`. CI runs the same check, and on merge to `main` it publishes the zips to S3.
 
 ## Reporting issues
 

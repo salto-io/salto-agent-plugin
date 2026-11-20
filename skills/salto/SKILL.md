@@ -7,7 +7,7 @@ description: Single entry point for all Salto workflows. Type a natural-language
 
 **Gemini CLI only (other agents, such as Claude Code, GitHub Copilot CLI and Codex CLI: skip this paragraph and that file):** you are Gemini CLI if this skill was loaded by `activate_skill` and its result said "Resources loaded from `<path>`" or listed `<available_resources>`. Then, before anything else, read `<path>/references/gemini-cli.md` by its full path and follow it.
 
-**Codex CLI only (other agents, such as Claude Code, GitHub Copilot CLI and Gemini CLI: skip this paragraph and that file):** you are Codex CLI if this skill came to you in a `<skill>` block with `<name>` and `<path>` tags (`<path>`, not `<location>`: other agents list skills with `<location>`, and that is not Codex), or from a skills list with a "Skill roots" table. Then, before anything else, read `<SKILL_DIR>/references/codex-cli.md` by its full path and follow it (`<SKILL_DIR>` is the folder of this SKILL.md; see Step 1).
+**Codex CLI only (other agents, such as Claude Code, GitHub Copilot CLI and Gemini CLI: skip this paragraph and that file):** you are Codex CLI if any of these is true: your shell tool takes a `sandbox_permissions` parameter; this SKILL.md's path contains `/.codex/`; this skill came to you in a `<skill>` block with `<name>` and `<path>` tags (`<path>`, not `<location>`: other agents list skills with `<location>`, and that is not Codex); or it came from a skills list with a "Skill roots" table. Then, before anything else, read `<SKILL_DIR>/references/codex-cli.md` by its full path and follow it (`<SKILL_DIR>` is the folder of this SKILL.md; see Step 1).
 
 > [!NOTE]
 >

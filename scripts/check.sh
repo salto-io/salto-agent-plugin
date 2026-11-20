@@ -2,7 +2,7 @@
 # Checks the plugin files (run it before a release; CI runs it on every PR).
 #   - skills/salto/ is the only copy of the skill: no dist/ or meta.json (the old build).
 #   - The manifests keep the published names and point at the repo root. Codex CLI reads the
-#     .claude-plugin/ manifests too, so no Codex-only manifest may shadow them.
+#     .claude-plugin/ manifests too, so no Codex manifest may take their place.
 #   - Every version matches .claude-plugin/plugin.json, the version source.
 #     To release, change "version" there and in the other files this script names.
 #   - The skill folder has its files, and every <SKILL_DIR>/... path it names exists.
@@ -24,9 +24,10 @@ for old in dist meta.json; do
   if [ -e "$old" ]; then fail "$old must not exist: skills/salto/ is the only copy of the skill (no build step)"; fi
 done
 
-# Codex CLI would read these before .claude-plugin/ (with names and versions this script doesn't check).
+# Codex CLI (0.153) reads these instead of the .claude-plugin/ files, with names and versions this script doesn't check.
+# A root plugin.json (OpenAI's newer "portable" manifest) is used only when it has an agent-plugins "$schema".
 for shadow in plugin.json .codex-plugin/plugin.json .agents/plugins/marketplace.json; do
-  if [ -e "$shadow" ]; then fail "$shadow must not exist: Codex CLI would read it instead of .claude-plugin/"; fi
+  if [ -e "$shadow" ]; then fail "$shadow must not exist: Codex CLI can use it instead of .claude-plugin/ (see the comment above)"; fi
 done
 
 version=$(jq -r .version .claude-plugin/plugin.json 2>/dev/null) || { fail ".claude-plugin/plugin.json is missing or not valid JSON"; version=""; }

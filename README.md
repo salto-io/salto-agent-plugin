@@ -4,7 +4,7 @@ Agent skills for Claude Code, GitHub Copilot CLI, Gemini CLI and OpenAI Codex CL
 
 ## What this plugin gives you
 
-A single slash command — `/salto "<natural language request>"` — that routes your request to the right workflow: **Explore** or **Deploy**.
+A single slash command — `/salto "<natural language request>"` — that routes your request to the right workflow: **Explore** or **Deploy**. (In Codex CLI, type `$salto-cli-skills:salto <request>` instead; see [Install in Codex CLI](#install-in-codex-cli).)
 
 Adapter-specific knowledge is loaded automatically based on what your workspace uses, from a per-adapter directory (`adapters/<adapter>/`). The Salesforce directory also carries CPQ and RLM knowledge. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
 
@@ -159,15 +159,21 @@ cd ~/path/to/your/salto-workspace
 codex
 ```
 
-If Codex asks whether you trust the folder, choose Yes. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Keep these approvals: don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` or `--approve-for-me` for Salto, don't set them in `~/.codex/config.toml` (`sandbox_mode`, `approval_policy`, `approvals_reviewer`), and don't pick Full Access in `/permissions`. With `--ask-for-approval never` (and in `codex exec`) Codex can't ask you, so deploys stop at the first `salto-cli` command; only questions answered from the workspace files still work.
+If Codex asks whether you trust the folder, choose Yes, but only for your own workspace repo. Trusting a folder also loads its `.codex/` settings, which can change approvals, so first check that the repo has no `.codex/` folder you don't know. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Keep these approvals: don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` or `--approve-for-me` for Salto, don't set `sandbox_mode = "danger-full-access"`, `approval_policy = "never"` or `approvals_reviewer = "auto_review"` in `~/.codex/config.toml`, and don't pick Full Access in `/permissions`. With `--ask-for-approval never` (and in `codex exec`) Codex can't ask you, so deploys stop at the first `salto-cli` command; only questions answered from the workspace files still work.
 
 Then ask: `$salto-cli-skills:salto <request>` (type `$` to pick the skill), or ask in plain words (for example, "use salto to list my Zendesk triggers").
 
-For deploy requests, Codex asks you to approve:
+Codex asks you to approve each command that needs the network or writes the `.git` folder, because it runs them outside the sandbox, with full network and disk access. Read each command before you approve it, and approve with "Yes, proceed" (this time only). Never choose "don't ask again". Expect only:
 
-- `salto-cli`, `gh` and the git commands that change the repo (`git add`, `commit`, `push`). They need the network or write the `.git` folder, so Codex runs them outside the sandbox. Approve each one with "Yes, proceed" (this time only). Don't choose "don't ask again" for `git` or `gh` commands.
-- The NACL edits. `salto-cli` puts the change worktree next to your workspace (`../<workspace>-salto-...`), outside the folder Codex may write. Approve edits only in that worktree, and never files written with `python`, `cp` or `echo`. Codex doesn't ask before it edits files in your workspace folder itself. The skill must not edit there; if you see it do that, stop it (Esc).
-- Never approve `npx` or `npm` commands that install or run `salto-cli`: Salto doesn't publish it on npm, so anyone could publish a package with that name. If `salto-cli` is missing, the skill should stop and ask you.
+- `salto-cli deployment preflight`, `prepare-worktree`, `validate-local`, `ship`, `preview`, `list`, `show` or `create from-pull-request` (explore requests may ask for some of these too)
+- `gh auth status`
+- `git add`, `commit` or `push` in the `../<workspace>-salto-...` worktree, and `git fetch` or `pull`
+- `acli` or `az` commands that read or comment on your ticket, when you ask for ticket work (for example with `--ticket`)
+- at the end of a deploy, `rm -rf` of the skill's temp folder (`.../salto-state-...` in your temp folder)
+
+Decline anything else (for example `gh api`, `gh repo`, `git push --force`, or `rm` of any other folder) and tell Codex to stop. Never approve `npx` or `npm` commands that install or run `salto-cli`: Salto doesn't publish it on npm, so anyone could publish a package with that name. If `salto-cli` is missing, the skill should stop and ask you.
+
+For deploy requests, Codex also asks you to approve the NACL edits. `salto-cli` puts the change worktree next to your workspace (`../<workspace>-salto-...`), outside the folder Codex may write. Approve edits only in that worktree, and never files written with `python`, `cp` or `echo`. Codex doesn't ask before it edits files in your workspace folder itself. The skill must not edit there; if you see it do that, stop it (Esc).
 
 Codex passes your environment variables (including `SALTO_API_TOKEN`) to the commands it runs. If your Codex config filters them (`shell_environment_policy`), keep `SALTO_API_TOKEN`.
 
@@ -188,6 +194,8 @@ From inside a Salto workspace directory:
 ```
 /salto "add a Zendesk trigger named welcome_message that tags new tickets with 'welcome'"
 ```
+
+In Codex CLI, type `$salto-cli-skills:salto` instead of `/salto` (for example `$salto-cli-skills:salto add a Zendesk trigger ...`).
 
 Or, from anywhere with `--workspace` (Claude Code and Copilot; in Gemini CLI and Codex CLI, start inside the workspace, see [Start Gemini CLI for Salto](#start-gemini-cli-for-salto) and [Start Codex for Salto](#start-codex-for-salto)):
 

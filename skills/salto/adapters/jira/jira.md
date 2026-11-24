@@ -6,7 +6,7 @@ This file is loaded automatically by salto-deploy and salto-explore when the wor
 
 ## Element Types and NACL ID Pattern
 
-An element is **declared** as `jira.<type_name> <element_name> { ... }` and **referenced** as:
+An element is **declared** as `jira.<type_name> <element_name> { ... }` (site-wide settings have no `<element_name>`; see below) and **referenced** as:
 
 ```
 jira.<type_name>.instance.<element_name>
@@ -38,7 +38,7 @@ When in doubt, copy the id from an existing fetched element rather than deriving
 | `StatusCategory`                | Status category (To Do, In Progress, Done) — referenced by `Status`     |
 | `Priority`                      | Priority value                                                          |
 | `Resolution`                    | Resolution value                                                        |
-| `Field`                         | Custom field (any type — see subtypes)                                  |
+| `Field`                         | Field, custom or system (ids differ; see above)                         |
 | `FieldConfiguration`            | Field configuration (which fields are required / hidden per scheme)     |
 | `FieldConfigurationScheme`      | Mapping of issue type → field configuration                             |
 | `PermissionScheme`              | Permission scheme (holds the permission grants)                         |
@@ -93,7 +93,7 @@ Each `ApplicationProperty` is one setting: `id` is Jira's property key (e.g. `ji
 
 ### Jira Service Management, Assets and Forms
 
-Only fetched when the workspace's Jira adapter config enables them: `fetch.enableJSM` for Service Management and Forms, plus `fetch.enableJSMPremium` for Assets. The project-level ones are children of the service project (see below).
+Only fetched when the workspace's Jira adapter config enables them: `fetch.enableJSM` for Service Management and Forms, plus `fetch.enableJSMPremium` for Assets. The project-level ones are children of their project (see below).
 
 | NACL type name              | Jira concept                                                  | Parent         |
 | --------------------------- | ------------------------------------------------------------- | -------------- |
@@ -117,13 +117,24 @@ Only fetched when the workspace's Jira adapter config enables them: `fetch.enabl
 
 ### Project-scoped elements
 
-The Service Management types above, plus `Form`, `ProjectComponent` and `IssueLayout`, belong to one project through `_parent = [jira.Project.instance.<project>]`. Keep `_parent` when creating one. Their ids include the project:
+`RequestType`, `Queue`, `SLA`, `Calendar`, `PortalGroup`, `PortalSettings`, `Form`, `ProjectComponent` and `IssueLayout` belong to one project through `_parent = [jira.Project.instance.<project>]`. Keep `_parent` when creating one. Their ids include the project:
 
 - `RequestType`, `Queue`, `SLA`, `Calendar`, `PortalGroup`: `<name>_<PROJECT KEY>`, escaped as one string. Queue `All open` in project `ITSD` → `All_open_ITSD@su`.
 - `Form`: `<PROJECT KEY>_<form name>`. The form's name is at `design.settings.name`.
 - `PortalSettings`: the project's name.
+- `ProjectComponent`, `IssueLayout`: start with the project's element id. Copy existing ids.
 
-An id that starts with a digit is quoted where it's declared: `jira.Queue "1st_Line_ITSD@su" { ... }`.
+An id that starts with a digit is quoted where it's declared, but not in references: `jira.Queue "1st_Line_ITSD@su" { ... }` is referenced as `jira.Queue.instance.1st_Line_ITSD@su`.
+
+### Assets ids
+
+An `ObjectType` id is its parent's full id (the parent object type, or the schema for a top-level type), `@` suffix included, plus `_<name>`, all escaped again as one string (`@` is coded `m`). An `ObjectTypeAttribute` id is built the same way from its object type's id:
+
+- Schema `IT Assets` → `IT_Assets@s`
+- Its object type `Laptops` → `IT_Assets_s_Laptops@umu`
+- That type's attribute `Serial Number` → `IT_Assets_s_Laptops_umu_Serial_Number@uuumus`
+
+`ObjectTypeOrder` lists every object type directly under its parent. Keep it complete when adding or removing an object type.
 
 ---
 
@@ -328,6 +339,8 @@ workflowScheme = jira.WorkflowScheme.instance.Engineering_Default@s
 # Wrong — string lookup won't survive a rename
 workflowScheme = "Engineering Default"
 ```
+
+**Unresolved references** look like `jira.<type>.instance.missing_<id>` (a reference Salto couldn't resolve during fetch, for example to a status or project). They're common in real fetches. Leave them as they are; don't create elements to match them.
 
 **JQL is stored as a template.** In `Filter` and `Queue` `jql`, fields appear as `${ jira.Field.instance.<field> }` and values as `${ jira.Status.instance.<status>.name }` (wrapped in `\"…\"` when the name has spaces). Keep that form when editing JQL. A plain name in its place isn't tracked as a reference.
 

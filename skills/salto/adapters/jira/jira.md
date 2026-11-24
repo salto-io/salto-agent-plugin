@@ -6,7 +6,7 @@ This file is loaded automatically by salto-deploy and salto-explore when the wor
 
 ## Element Types and NACL ID Pattern
 
-An element is **declared** as `jira.<type_name> <element_name> { ... }` and **referenced** as:
+An element is **declared** as `jira.<type_name> <element_name> { ... }` (site-wide settings have no `<element_name>`; see below) and **referenced** as:
 
 ```
 jira.<type_name>.instance.<element_name>
@@ -15,7 +15,7 @@ jira.<type_name>.instance.<element_name>
 `<element_name>` is the element's name, case kept. A name made only of letters, digits and `_` is used as-is (`Story`). Otherwise every other character is replaced by `_` and an `@` suffix lists one code per escaped character, underscores included: `s` space, `f` colon, `b` hyphen, `v` dot, `d` slash, `u` underscore. When every escaped character is the same, the code appears only once. For example, `Engineering Review` becomes `Engineering_Review@s`, `Waiting for Support` becomes `Waiting_for_Support@s` (not `@ss`), and `Sales: Lead Workflow` becomes `Sales__Lead_Workflow@fss`. Two types differ:
 
 - **Status** ids are lowercased: `In Progress` → `jira.Status.instance.in_progress@s`.
-- **Custom field** ids are `<name>__<type>__c`, escaped as one string: `Risk Score` (type `…:float`) → `jira.Field.instance.Risk_Score__float__c@suuuu`. Salto doesn't use `customfield_10001` as the element id.
+- **Custom field** ids are `<name>__<type>__c`, escaped as one string: `Risk Score` (type `…:float`) → `jira.Field.instance.Risk_Score__float__c@suuuu`. Salto doesn't use `customfield_10001` as the element id. System fields have no `__c`: `Status__status`, `Summary__string`.
 
 When in doubt, copy the id from an existing fetched element rather than deriving it.
 
@@ -38,7 +38,7 @@ When in doubt, copy the id from an existing fetched element rather than deriving
 | `StatusCategory`                | Status category (To Do, In Progress, Done) — referenced by `Status`     |
 | `Priority`                      | Priority value                                                          |
 | `Resolution`                    | Resolution value                                                        |
-| `Field`                         | Custom field (any type — see subtypes)                                  |
+| `Field`                         | Field, custom or system (ids differ; see above)                         |
 | `FieldConfiguration`            | Field configuration (which fields are required / hidden per scheme)     |
 | `FieldConfigurationScheme`      | Mapping of issue type → field configuration                             |
 | `PermissionScheme`              | Permission scheme (holds the permission grants)                         |
@@ -54,6 +54,87 @@ When in doubt, copy the id from an existing fetched element rather than deriving
 | `CustomFieldContextOption`      | Option of a select-list field, scoped to one `CustomFieldContext`       |
 | `FieldContextOptionsOrder`      | Order of a context's options (must list every option)                   |
 | `Webhook`                       | Webhook                                                                 |
+| `IssueLinkType`                 | Issue link type (inward / outward descriptions)                         |
+| `ProjectComponent`              | Project component (child of a project)                                  |
+| `IssueLayout`                   | Issue view layout of a project's screen (child of a project)            |
+| `DashboardGadget`               | Gadget on a dashboard (child of a `Dashboard`)                          |
+| `PriorityScheme`                | Priority scheme                                                         |
+| `FieldScheme`                   | Field scheme (Cloud sites on the newer field configuration model)       |
+| `ApplicationRole`               | Product access (e.g. Jira, Jira Product Discovery): its groups          |
+| `ProjectType`                   | Project type (e.g. `software`, `business`)                              |
+| `IssueEvent`                    | Issue event, referenced by notification schemes and workflows           |
+| `AutomationLabel`               | Label used to group automation rules                                    |
+| `TimeTrackingProvider`          | Time tracking provider (e.g. Jira's own)                                |
+| `ApplicationProperty`           | One advanced or look-and-feel setting (see Site-wide settings)          |
+
+### Site-wide settings
+
+`Configuration`, `AttachmentSettings` and `Permissions` are single elements with **no element name**, stored under `Settings/`:
+
+```nacl
+jira.Configuration {
+  votingEnabled = true
+  subTasksEnabled = true
+  timeTrackingEnabled = true
+  timeTrackingConfiguration = {
+    workingHoursPerDay = 8
+    workingDaysPerWeek = 5
+    timeFormat = "hours"
+    defaultUnit = "minute"
+  }
+}
+```
+
+- `Configuration`: global options (voting, watching, unassigned issues, sub-tasks, issue linking, time tracking and its working hours / days).
+- `AttachmentSettings`: `enabled` and `uploadLimit` (bytes).
+- `Permissions`: the list of permission keys that `PermissionScheme` grants use. Reference data, not something to edit.
+
+Each `ApplicationProperty` is one setting: `id` is Jira's property key (e.g. `jira.lf.hero.button.base.bg.colour`), `value` holds the setting, and `name` and `type` describe it.
+
+### Jira Service Management, Assets and Forms
+
+Only fetched when the workspace's Jira adapter config enables them: `fetch.enableJSM` for Service Management and Forms, plus `fetch.enableJSMPremium` for Assets. The project-level ones are children of their project (see below).
+
+| NACL type name              | Jira concept                                                  | Parent         |
+| --------------------------- | ------------------------------------------------------------- | -------------- |
+| `RequestType`               | Request type (portal form, issue type, statuses shown)         | `Project`      |
+| `Queue`                     | Agent queue (JQL + columns)                                    | `Project`      |
+| `SLA`                       | SLA goals and start / stop conditions                          | `Project`      |
+| `Calendar`                  | Working hours and holidays used by SLAs                        | `Project`      |
+| `PortalGroup`               | Group of request types on the portal                           | `Project`      |
+| `PortalSettings`            | Portal name, description and announcements                     | `Project`      |
+| `Form`                      | Form (layout and questions in `design`)                        | `Project`      |
+| `ObjectSchema`              | Assets object schema                                           | —              |
+| `ObjectType`                | Assets object type                                             | `ObjectSchema` |
+| `ObjectTypeAttribute`       | Attribute of an object type, linked by its `objectType` field  | —              |
+| `ObjectSchemaStatus`        | Assets status                                                  | `ObjectSchema` |
+| `ObjectSchemaReferenceType` | Assets reference type                                          | `ObjectSchema` |
+| `ObjectTypeOrder`           | Order of object types under a schema or a parent type          | `ObjectSchema` or `ObjectType` |
+| `ObjectTypeLabelAttribute`  | Which attribute is an object type's label (`labelAttribute`)   | —              |
+| `ObjectTypeIcon`            | Icon available to object types                                 | —              |
+| `ObjectSchemaGlobalStatus`  | Site-wide Assets status                                        | —              |
+| `ObjectSchemaDefaultReferenceType` | Site-wide default Assets reference type                 | —              |
+
+### Project-scoped elements
+
+`RequestType`, `Queue`, `SLA`, `Calendar`, `PortalGroup`, `PortalSettings`, `Form`, `ProjectComponent` and `IssueLayout` belong to one project through `_parent = [jira.Project.instance.<project>]`. Keep `_parent` when creating one. Their ids include the project:
+
+- `RequestType`, `Queue`, `SLA`, `Calendar`, `PortalGroup`: `<name>_<PROJECT KEY>`, escaped as one string. Queue `All open` in project `ITSD` → `All_open_ITSD@su`.
+- `Form`: `<PROJECT KEY>_<form name>`. The form's name is at `design.settings.name`.
+- `PortalSettings`: the project's name.
+- `ProjectComponent`, `IssueLayout`: start with the project's element id. Copy existing ids.
+
+An id that starts with a digit is quoted where it's declared, but not in references: `jira.Queue "1st_Line_ITSD@su" { ... }` is referenced as `jira.Queue.instance.1st_Line_ITSD@su`.
+
+### Assets ids
+
+An `ObjectType` id is its parent's full id (the parent object type, or the schema for a top-level type), `@` suffix included, plus `_<name>`, all escaped again as one string (`@` is coded `m`). An `ObjectTypeAttribute` id is built the same way from its object type's id:
+
+- Schema `IT Assets` → `IT_Assets@s`
+- Its object type `Laptops` → `IT_Assets_s_Laptops@umu`
+- That type's attribute `Serial Number` → `IT_Assets_s_Laptops_umu_Serial_Number@uuumus`
+
+`ObjectTypeOrder` lists every object type directly under its parent. Keep it complete when adding or removing an object type.
 
 ---
 
@@ -166,6 +247,25 @@ jira.Field Risk_Score__float__c@suuuu {
 }
 ```
 
+### Service Management queue
+
+```nacl
+jira.Queue All_open_ITSD@su {
+  name = "All open"
+  jql = "${ jira.Field.instance.Status__status } != ${ jira.Status.instance.done.name } AND ${ jira.Field.instance.Assignee__user } is EMPTY"
+  columns = [
+    jira.Field.instance.Key,
+    jira.Field.instance.Summary__string,
+    jira.Field.instance.Status__status,
+  ]
+  canBeHidden = false
+  favourite = false
+  _parent = [
+    jira.Project.instance.IT_Service_Desk@s,
+  ]
+}
+```
+
 ### Permission scheme
 
 ```nacl
@@ -240,7 +340,11 @@ workflowScheme = jira.WorkflowScheme.instance.Engineering_Default@s
 workflowScheme = "Engineering Default"
 ```
 
-Custom field references inside automations or filters often live as string literals (`"customfield_10042"`) because the Jira API itself uses that format. That's acceptable when the target is a stable Jira-assigned identifier; just be aware those won't be tracked by Salto's reference graph.
+**Unresolved references** look like `jira.<type>.instance.missing_<id>` (a reference Salto couldn't resolve during fetch, for example to a status or project). They're common in real fetches. Leave them as they are; don't create elements to match them.
+
+**JQL is stored as a template.** In `Filter` and `Queue` `jql`, fields appear as `${ jira.Field.instance.<field> }` and values as `${ jira.Status.instance.<status>.name }` (wrapped in `\"…\"` when the name has spaces). Keep that form when editing JQL. A plain name in its place isn't tracked as a reference.
+
+Custom field references inside automations often live as string literals (`"customfield_10042"`) because the Jira API itself uses that format. That's acceptable when the target is a stable Jira-assigned identifier; just be aware those won't be tracked by Salto's reference graph.
 
 ---
 

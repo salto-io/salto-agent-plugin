@@ -1,10 +1,10 @@
 # salto-cli-skills
 
-Agent skills for Claude Code, GitHub Copilot CLI and Gemini CLI that automate [Salto](https://www.salto.io) NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.
+Agent skills for Claude Code, GitHub Copilot CLI, Gemini CLI and OpenAI Codex CLI that automate [Salto](https://www.salto.io) NACL workflows: fast credential-free local validation, deploy orchestration, and end-to-end change loops against SaaS-managed Salto environments.
 
 ## What this plugin gives you
 
-A single slash command — `/salto "<natural language request>"` — that routes your request to the right workflow: **Explore** or **Deploy**.
+A single slash command — `/salto "<natural language request>"` — that routes your request to the right workflow: **Explore** or **Deploy**. (In Codex CLI, type `$salto-cli-skills:salto <request>` instead; see [Install in Codex CLI](#install-in-codex-cli).)
 
 Adapter-specific knowledge is loaded automatically based on what your workspace uses, from a per-adapter directory (`adapters/<adapter>/`). The Salesforce directory also carries CPQ and RLM knowledge. The plugin ships those workflow definitions and adapter knowledge as reference content; only `/salto` shows up in your command list.
 
@@ -141,6 +141,45 @@ Gemini CLI limits the agent more than Claude Code does. For deploy requests, `sa
 
 Then use it like in Claude Code: `/salto "<request>"` with the skill-only install, or `/salto-cli-skills:salto "<request>"` with the extension (Gemini adds the extension name to the command). You can also ask in plain words (for example, "use salto to list my Zendesk triggers"). Gemini asks you to approve the skill and the commands it runs.
 
+## Install in Codex CLI
+
+```
+codex plugin marketplace add salto-io/salto-agent-plugin
+codex plugin add salto-cli-skills@salto-claude-plugin
+```
+
+Check it with `codex plugin list`. Codex updates the plugin to the latest commit on `main` by itself when it starts. To update now, run `codex plugin marketplace upgrade salto-claude-plugin`, then restart Codex.
+
+### Start Codex for Salto
+
+Start Codex inside the workspace folder (the root of its git repo, the usual Salto setup):
+
+```
+cd ~/path/to/your/salto-workspace
+codex
+```
+
+If Codex asks whether you trust the folder, choose Yes, but only for your own workspace repo. Trusting a folder also loads its `.codex/` settings, which can change approvals, so first check that the repo has no `.codex/` folder you don't know. Codex then runs commands in its sandbox: they can write only in this folder and the temp folder, they can't use the network, and the `.git` folder stays read-only. When a command needs more, Codex asks you first. Keep these approvals: don't start Codex with `--yolo`, `--dangerously-bypass-approvals-and-sandbox`, `--sandbox danger-full-access` or `--approve-for-me` for Salto, don't set `sandbox_mode = "danger-full-access"` or `approval_policy = "never"` in `~/.codex/config.toml`, keep `approvals_reviewer = "user"` (the default), and don't pick Full Access in `/permissions`. With `--ask-for-approval never` (and in `codex exec`) Codex can't ask you, so deploys stop at the first `salto-cli` command; only questions answered from the workspace files still work.
+
+Then ask: `$salto-cli-skills:salto <request>` (type `$` to pick the skill), or ask in plain words (for example, "use salto to list my Zendesk triggers").
+
+Codex asks you to approve each command that needs the network or writes the `.git` folder, because it runs them outside the sandbox, with full network and disk access. Read each command before you approve it, and approve with "Yes, proceed" (this time only). Never choose "don't ask again". Expect only:
+
+- `salto-cli deployment preflight`, `prepare-worktree`, `validate-local`, `ship`, `preview`, `list`, `show` or `create from-pull-request` (explore requests may ask for some of these too)
+- promote requests: `salto-cli deployment env-info` and `create from-deployments`, plus `preflight`, `list`, `show` and `preview`
+- `gh auth status`
+- `git add` or `commit` in the `../<workspace>-salto-...` change worktree, and `git push` to `origin`, branch `salto/...`, from the change worktree
+- Azure DevOps remotes: `az repos` commands (the `az repos -h` check, and creating or finding the PR)
+- `acli jira ...`, the `jira` CLI or `az boards ...` commands that read or comment on your ticket, when your request names a ticket (a key such as SALTO-1234, or `--ticket`)
+- CPQ→RLM migration requests only: `salto element list` and `salto deploy --preview`
+- at the end of a deploy, `rm -rf` of the skill's temp folder (`.../salto-state-...` in your temp folder)
+
+Decline anything else (for example `gh api`, `gh repo`, `git push --force`, `git pull` in your workspace, or `rm` of any other folder) and tell Codex to stop. If you chose "don't ask again" in an earlier Codex session, check `~/.codex/rules/` for allow rules: Codex runs matching commands without asking. Never approve `npx` or `npm` commands that install or run `salto-cli`: Salto doesn't publish it on npm, so anyone could publish a package with that name. If `salto-cli` is missing, the skill should stop and ask you.
+
+For deploy requests, Codex also asks you to approve the NACL edits. `salto-cli` puts the change worktree next to your workspace (`../<workspace>-salto-...`), outside the folder Codex may write. Approve edits only in that worktree, and never files written with `python`, `cp` or `echo`. Codex doesn't ask before it edits files in your workspace folder itself. The skill must not edit there; if you see it do that, stop it (Esc).
+
+Codex passes your environment variables (including `SALTO_API_TOKEN`) to the commands it runs. If your Codex config filters them (`shell_environment_policy`), keep `SALTO_API_TOKEN`.
+
 ## Required environment variables
 
 For all SaaS-touching skills:
@@ -149,7 +188,7 @@ For all SaaS-touching skills:
 export SALTO_API_TOKEN=<your-token>     # generate in the Salto UI: Settings → API Tokens
 ```
 
-Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code, Copilot CLI or Gemini CLI starts.
+Add this to `~/.zshrc` (or your shell's rc) so it's set before Claude Code, Copilot CLI, Gemini CLI or Codex CLI starts.
 
 ## Quick start
 
@@ -159,7 +198,9 @@ From inside a Salto workspace directory:
 /salto "add a Zendesk trigger named welcome_message that tags new tickets with 'welcome'"
 ```
 
-Or, from anywhere with `--workspace` (Claude Code and Copilot; in Gemini CLI, start inside the workspace, see [Start Gemini CLI for Salto](#start-gemini-cli-for-salto)):
+In Codex CLI, type `$salto-cli-skills:salto` instead of `/salto` (for example `$salto-cli-skills:salto add a Zendesk trigger ...`).
+
+Or, from anywhere with `--workspace` (Claude Code and Copilot; in Gemini CLI and Codex CLI, start inside the workspace, see [Start Gemini CLI for Salto](#start-gemini-cli-for-salto) and [Start Codex for Salto](#start-codex-for-salto)):
 
 ```
 /salto "rename the Okta group admins to platform-admins" --workspace ~/path/to/your/salto-workspace
@@ -173,14 +214,14 @@ To inspect without changing anything (routed to explore internally):
 
 ## Updates
 
-Each install section above says how to update. Claude Code and Copilot CLI get a new copy only when we change the plugin's `version`. A Gemini extension installed from GitHub updates to every new commit on `main` (Gemini compares commits, not versions). The Gemini skill-only install changes only when you run the install command again. A running session keeps the skill it loaded at start, so restart the agent after an update.
+Each install section above says how to update. Claude Code and Copilot CLI get a new copy only when we change the plugin's `version`. A Gemini extension installed from GitHub updates to every new commit on `main` (Gemini compares commits, not versions). The Gemini skill-only install changes only when you run the install command again. Codex CLI updates to every new commit on `main` when it starts, or when you run `codex plugin marketplace upgrade salto-claude-plugin`. A running session keeps the skill it loaded at start, so restart the agent after an update.
 
 If the skills detect a `salto-cli` version older than the minimum they require, they'll refuse to run and tell you which version to upgrade to.
 
 ## For maintainers
 
-- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI and Gemini CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot reads too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code, `.github/plugin/marketplace.json` for Copilot).
-- In the skill files, write paths to bundled files as `<SKILL_DIR>/...` (SKILL.md, Step 1 explains it). Don't use agent-specific tokens such as `${CLAUDE_PLUGIN_ROOT}`. Put Gemini-only guidance in `skills/salto/references/gemini-cli.md`.
+- `skills/salto/` is the only copy of the skill. Claude Code, Copilot CLI, Gemini CLI and Codex CLI all use it as it is, with no build step. The repo root is the plugin (`.claude-plugin/plugin.json`, which Copilot and Codex read too), the Gemini extension (`gemini-extension.json`) and the marketplace (`.claude-plugin/marketplace.json` for Claude Code and Codex, `.github/plugin/marketplace.json` for Copilot). Don't add a Codex manifest (`.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json` or a root `plugin.json`): Codex can read it instead (`scripts/check.sh` fails on all three).
+- In the skill files, write paths to bundled files as `<SKILL_DIR>/...` (SKILL.md, Step 1 explains it). Don't use agent-specific tokens such as `${CLAUDE_PLUGIN_ROOT}`. Put Gemini-only guidance in `skills/salto/references/gemini-cli.md` and Codex-only guidance in `skills/salto/references/codex-cli.md`.
 - To release, change the version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.github/plugin/marketplace.json`, `gemini-extension.json` and `skills/salto/VERSION`, then run `./scripts/check.sh`. CI runs the same check, and on merge to `main` it publishes the zips to S3.
 
 ## Reporting issues

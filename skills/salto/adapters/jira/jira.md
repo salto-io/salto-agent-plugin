@@ -60,6 +60,36 @@ When in doubt, copy the id from an existing fetched element rather than deriving
 | `DashboardGadget`               | Gadget on a dashboard (child of a `Dashboard`)                          |
 | `PriorityScheme`                | Priority scheme                                                         |
 | `FieldScheme`                   | Field scheme (Cloud sites on the newer field configuration model)       |
+| `ApplicationRole`               | Product access (e.g. Jira, Jira Product Discovery): its groups          |
+| `ProjectType`                   | Project type (e.g. `software`, `business`)                              |
+| `IssueEvent`                    | Issue event, referenced by notification schemes and workflows           |
+| `AutomationLabel`               | Label used to group automation rules                                    |
+| `TimeTrackingProvider`          | Time tracking provider (e.g. Jira's own)                                |
+| `ApplicationProperty`           | One advanced or look-and-feel setting (see Site-wide settings)          |
+
+### Site-wide settings
+
+`Configuration`, `AttachmentSettings` and `Permissions` are single elements with **no element name**, stored under `Settings/`:
+
+```nacl
+jira.Configuration {
+  votingEnabled = true
+  subTasksEnabled = true
+  timeTrackingEnabled = true
+  timeTrackingConfiguration = {
+    workingHoursPerDay = 8
+    workingDaysPerWeek = 5
+    timeFormat = "hours"
+    defaultUnit = "minute"
+  }
+}
+```
+
+- `Configuration`: global options (voting, watching, unassigned issues, sub-tasks, issue linking, time tracking and its working hours / days).
+- `AttachmentSettings`: `enabled` and `uploadLimit` (bytes).
+- `Permissions`: the list of permission keys that `PermissionScheme` grants use. Reference data, not something to edit.
+
+Each `ApplicationProperty` is one setting: `id` is Jira's property key (e.g. `jira.lf.hero.button.base.bg.colour`), `value` holds the setting, and `name` and `type` describe it.
 
 ### Jira Service Management, Assets and Forms
 
@@ -79,6 +109,11 @@ Only fetched when the workspace's Jira adapter config enables them: `fetch.enabl
 | `ObjectTypeAttribute`       | Attribute of an object type, linked by its `objectType` field  | —              |
 | `ObjectSchemaStatus`        | Assets status                                                  | `ObjectSchema` |
 | `ObjectSchemaReferenceType` | Assets reference type                                          | `ObjectSchema` |
+| `ObjectTypeOrder`           | Order of object types under a schema or a parent type          | `ObjectSchema` or `ObjectType` |
+| `ObjectTypeLabelAttribute`  | Which attribute is an object type's label (`labelAttribute`)   | —              |
+| `ObjectTypeIcon`            | Icon available to object types                                 | —              |
+| `ObjectSchemaGlobalStatus`  | Site-wide Assets status                                        | —              |
+| `ObjectSchemaDefaultReferenceType` | Site-wide default Assets reference type                 | —              |
 
 ### Project-scoped elements
 
